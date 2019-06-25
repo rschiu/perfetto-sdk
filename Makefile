@@ -25,7 +25,7 @@ endif
 CXX := $(NDK_HOME)/toolchains/llvm/prebuilt/$(NDK_HOST)/bin/clang++
 LNK := $(CXX)
 
-TEST_CFG = duration_ms: 10000; buffers { size_kb: 1024 }; data_sources { config { name: "com.example.mytrace" } }
+TEST_CFG = duration_ms: 10000; buffers { size_kb: 1024 }; data_sources { config { name: "com.example.mytrace" gpu_counter_config { counter_ids: 0 counter_ids: 1 } } }
 
 CFLAGS += -std=c++11
 CFLAGS += -fno-omit-frame-pointer
@@ -116,7 +116,7 @@ out/%.o: %.cc out/mkdir.stamp out/check_ndk.stamp
 	@$(CXX) -o $@ -c $(CFLAGS) $<
 
 # Link executable
-out/example: $(PROTO_OBJS) out/perfetto.o out/example.o
+out/example: $(PROTO_OBJS) out/perfetto.o out/android_client_api_example.o
 	@echo LNK $@
 	@$(LNK) $^ $(LDFLAGS) -o $@
 
