@@ -3291,6 +3291,8 @@ struct DataSourceThreadLocalState {
 #include <functional>
 #include <memory>
 
+// gen_amalgamated expanded: #include "perfetto/base/export.h"
+
 namespace perfetto {
 
 namespace base {
@@ -3315,7 +3317,7 @@ class PlatformThreadLocalObject {
   virtual ~PlatformThreadLocalObject();
 };
 
-class Platform {
+class PERFETTO_EXPORT Platform {
  public:
   // Embedders can use this unless they have custom needs (e.g. Chrome wanting
   // to use its own base class for TLS).
@@ -3453,6 +3455,7 @@ class TracingTLS : public Platform::ThreadLocalObject {
 #include <atomic>
 #include <memory>
 
+// gen_amalgamated expanded: #include "perfetto/base/export.h"
 // gen_amalgamated expanded: #include "perfetto/tracing/internal/basic_types.h"
 // gen_amalgamated expanded: #include "perfetto/tracing/internal/tracing_tls.h"
 // gen_amalgamated expanded: #include "perfetto/tracing/platform.h"
@@ -3479,7 +3482,7 @@ struct DataSourceStaticState;
 // and methods that are required to implement them should go into
 // src/tracing/internal/tracing_muxer_impl.h instead: that one can pull in
 // perfetto headers outside of public, this one cannot.
-class TracingMuxer {
+class PERFETTO_EXPORT TracingMuxer {
  public:
   static TracingMuxer* Get() { return instance_; }
 
@@ -3625,6 +3628,7 @@ class LockedHandle {
 #include <mutex>
 
 // gen_amalgamated expanded: #include "perfetto/base/compiler.h"
+// gen_amalgamated expanded: #include "perfetto/base/export.h"
 // gen_amalgamated expanded: #include "perfetto/protozero/message.h"
 // gen_amalgamated expanded: #include "perfetto/protozero/message_handle.h"
 // gen_amalgamated expanded: #include "perfetto/trace/trace_packet.pbzero.h"
@@ -3640,7 +3644,7 @@ class DataSourceConfig;
 
 // Base class with the virtual methods to get start/stop notifications.
 // Embedders are supposed to derive the templated version below, not this one.
-class DataSourceBase {
+class PERFETTO_EXPORT DataSourceBase {
  public:
   virtual ~DataSourceBase();
 
@@ -3902,6 +3906,9 @@ class DataSource : public DataSourceBase {
 #include <string>
 #include <vector>
 
+// gen_amalgamated expanded: #include "perfetto/base/export.h"
+// gen_amalgamated expanded: #include "perfetto/base/logging.h"
+
 namespace perfetto {
 
 class TracingBackend;
@@ -3935,10 +3942,14 @@ struct TracingInitArgs {
   // of platform-specific bits like thread creation and TLS slot handling. If
   // not set it will use Platform::GetDefaultPlatform().
   Platform* platform = nullptr;
+
+ protected:
+  friend class Tracing;
+  bool dcheck_is_on_ = PERFETTO_DCHECK_IS_ON();
 };
 
 // The entry-point for using perfetto.
-class Tracing {
+class PERFETTO_EXPORT Tracing {
  public:
   // Initializes Perfetto with the given backends in the calling process and/or
   // with a user-provided backend. Can only be called once.
@@ -3952,7 +3963,7 @@ class Tracing {
   Tracing() = delete;
 };
 
-class TracingSession {
+class PERFETTO_EXPORT TracingSession {
  public:
   virtual ~TracingSession();
 
@@ -3960,11 +3971,24 @@ class TracingSession {
   // TODO(primiano): add an error callback.
   virtual void Setup(const TraceConfig&) = 0;
 
+  // Enable tracing asynchronously.
   virtual void Start() = 0;
 
+  // Enable tracing and block until tracing has started. Note that if data
+  // sources are registered after this call was initiated, the call may return
+  // before the additional data sources have started. Also, if other producers
+  // (e.g., with system-wide tracing) have registered data sources without start
+  // notification support, this call may return before those data sources have
+  // started.
+  virtual void StartBlocking() = 0;
+
+  // Disable tracing asynchronously.
   // Use SetOnStopCallback() to get a notification when the tracing session is
   // fully stopped and all data sources have acked.
   virtual void Stop() = 0;
+
+  // Disable tracing and block until tracing has stopped.
+  virtual void StopBlocking() = 0;
 
   // This callback will be invoked when tracing is disabled.
   // This can happen either when explicitly calling TracingSession.Stop() or
@@ -4123,6 +4147,1389 @@ class TracingBackend {
 // gen_amalgamated expanded: #include "perfetto/tracing/tracing_backend.h"
 
 #endif  // INCLUDE_PERFETTO_TRACING_H_
+// gen_amalgamated begin header: include/perfetto/protozero/contiguous_memory_range.h
+/*
+ * Copyright (C) 2017 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef INCLUDE_PERFETTO_PROTOZERO_CONTIGUOUS_MEMORY_RANGE_H_
+#define INCLUDE_PERFETTO_PROTOZERO_CONTIGUOUS_MEMORY_RANGE_H_
+
+#include <assert.h>
+#include <stddef.h>
+#include <stdint.h>
+
+namespace protozero {
+
+// Keep this struct trivially constructible (no ctors, no default initializers).
+struct ContiguousMemoryRange {
+  uint8_t* begin;
+  uint8_t* end;  // STL style: one byte past the end of the buffer.
+
+  inline bool is_valid() const { return begin != nullptr; }
+  inline void reset() { begin = nullptr; }
+  inline size_t size() { return static_cast<size_t>(end - begin); }
+};
+
+}  // namespace protozero
+
+#endif  // INCLUDE_PERFETTO_PROTOZERO_CONTIGUOUS_MEMORY_RANGE_H_
+// gen_amalgamated begin header: include/perfetto/protozero/field.h
+/*
+ * Copyright (C) 2019 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef INCLUDE_PERFETTO_PROTOZERO_FIELD_H_
+#define INCLUDE_PERFETTO_PROTOZERO_FIELD_H_
+
+#include <stdint.h>
+
+#include <string>
+
+// gen_amalgamated expanded: #include "perfetto/base/logging.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/contiguous_memory_range.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/proto_utils.h"
+
+namespace protozero {
+
+struct ConstBytes {
+  const uint8_t* data;
+  size_t size;
+};
+
+struct ConstChars {
+  // Allow implicit conversion to perfetto's base::StringView without depending
+  // on perfetto/base or viceversa.
+  static constexpr bool kConvertibleToStringView = true;
+  std::string ToStdString() const { return std::string(data, size); }
+
+  const char* data;
+  size_t size;
+};
+
+// A protobuf field decoded by the protozero proto decoders. It exposes
+// convenience accessors with minimal debug checks.
+// This class is used both by the iterator-based ProtoDecoder and by the
+// one-shot TypedProtoDecoder.
+// If the field is not valid the accessors consistently return zero-integers or
+// null strings.
+class Field {
+ public:
+  inline bool valid() const { return id_ != 0; }
+  inline uint16_t id() const { return id_; }
+  explicit inline operator bool() const { return valid(); }
+
+  inline proto_utils::ProtoWireType type() const {
+    auto res = static_cast<proto_utils::ProtoWireType>(type_);
+    PERFETTO_DCHECK(res == proto_utils::ProtoWireType::kVarInt ||
+                    res == proto_utils::ProtoWireType::kLengthDelimited ||
+                    res == proto_utils::ProtoWireType::kFixed32 ||
+                    res == proto_utils::ProtoWireType::kFixed64);
+    return res;
+  }
+
+  inline bool as_bool() const {
+    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kVarInt);
+    return static_cast<bool>(int_value_);
+  }
+
+  inline uint32_t as_uint32() const {
+    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kVarInt ||
+                    type() == proto_utils::ProtoWireType::kFixed32);
+    return static_cast<uint32_t>(int_value_);
+  }
+
+  inline int32_t as_int32() const {
+    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kVarInt ||
+                    type() == proto_utils::ProtoWireType::kFixed32);
+    return static_cast<int32_t>(int_value_);
+  }
+
+  inline uint64_t as_uint64() const {
+    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kVarInt ||
+                    type() == proto_utils::ProtoWireType::kFixed32 ||
+                    type() == proto_utils::ProtoWireType::kFixed64);
+    return int_value_;
+  }
+
+  inline int64_t as_int64() const {
+    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kVarInt ||
+                    type() == proto_utils::ProtoWireType::kFixed32 ||
+                    type() == proto_utils::ProtoWireType::kFixed64);
+    return static_cast<int64_t>(int_value_);
+  }
+
+  inline float as_float() const {
+    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kFixed32);
+    float res;
+    uint32_t value32 = static_cast<uint32_t>(int_value_);
+    memcpy(&res, &value32, sizeof(res));
+    return res;
+  }
+
+  inline double as_double() const {
+    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kFixed64);
+    double res;
+    memcpy(&res, &int_value_, sizeof(res));
+    return res;
+  }
+
+  inline ConstChars as_string() const {
+    PERFETTO_DCHECK(!valid() ||
+                    type() == proto_utils::ProtoWireType::kLengthDelimited);
+    return ConstChars{reinterpret_cast<const char*>(data()), size_};
+  }
+
+  inline std::string as_std_string() const { return as_string().ToStdString(); }
+
+  inline ConstBytes as_bytes() const {
+    PERFETTO_DCHECK(!valid() ||
+                    type() == proto_utils::ProtoWireType::kLengthDelimited);
+    return ConstBytes{data(), size_};
+  }
+
+  inline const uint8_t* data() const {
+    PERFETTO_DCHECK(!valid() ||
+                    type() == proto_utils::ProtoWireType::kLengthDelimited);
+    return reinterpret_cast<const uint8_t*>(int_value_);
+  }
+
+  inline size_t size() const {
+    PERFETTO_DCHECK(!valid() ||
+                    type() == proto_utils::ProtoWireType::kLengthDelimited);
+    return size_;
+  }
+
+  inline uint64_t raw_int_value() const { return int_value_; }
+
+  inline void initialize(uint16_t id,
+                         uint8_t type,
+                         uint64_t int_value,
+                         uint32_t size) {
+    id_ = id;
+    type_ = type;
+    int_value_ = int_value;
+    size_ = size;
+  }
+
+ private:
+  // Fields are deliberately not initialized to keep the class trivially
+  // constructible. It makes a large perf difference for ProtoDecoder.
+
+  uint64_t int_value_;  // In kLengthDelimited this contains the data() addr.
+  uint32_t size_;       // Only valid when when type == kLengthDelimited.
+  uint16_t id_;         // Proto field ordinal.
+  uint8_t type_;        // proto_utils::ProtoWireType.
+};
+
+// The Field struct is used in a lot of perf-sensitive contexts.
+static_assert(sizeof(Field) == 16, "Field struct too big");
+
+}  // namespace protozero
+
+#endif  // INCLUDE_PERFETTO_PROTOZERO_FIELD_H_
+// gen_amalgamated begin header: include/perfetto/protozero/message.h
+/*
+ * Copyright (C) 2017 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef INCLUDE_PERFETTO_PROTOZERO_MESSAGE_H_
+#define INCLUDE_PERFETTO_PROTOZERO_MESSAGE_H_
+
+#include <assert.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <type_traits>
+
+// gen_amalgamated expanded: #include "perfetto/base/export.h"
+// gen_amalgamated expanded: #include "perfetto/base/logging.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/contiguous_memory_range.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/proto_utils.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/scattered_stream_writer.h"
+
+namespace perfetto {
+namespace shm_fuzz {
+class FakeProducer;
+}  // namespace shm_fuzz
+}  // namespace perfetto
+
+namespace protozero {
+
+class MessageHandleBase;
+
+// Base class extended by the proto C++ stubs generated by the ProtoZero
+// compiler. This class provides the minimal runtime required to support
+// append-only operations and is designed for performance. None of the methods
+// require any dynamic memory allocation.
+class PERFETTO_EXPORT Message {
+ public:
+  friend class MessageHandleBase;
+  // Grant end_to_end_shared_memory_fuzzer access in order to write raw
+  // bytes into the buffer.
+  friend class ::perfetto::shm_fuzz::FakeProducer;
+  // Adjust the |nested_messages_arena_| size when changing this, or the
+  // static_assert in the .cc file will bark.
+  static constexpr uint32_t kMaxNestingDepth = 10;
+
+  // Ctor and Dtor of Message are never called, with the exeception
+  // of root (non-nested) messages. Nested messages are allocated via placement
+  // new in the |nested_messages_arena_| and implictly destroyed when the arena
+  // of the root message goes away. This is fine as long as all the fields are
+  // PODs, which is checked by the static_assert in the ctor (see the Reset()
+  // method in the .cc file).
+  Message() = default;
+
+  // Clears up the state, allowing the message to be reused as a fresh one.
+  void Reset(ScatteredStreamWriter*);
+
+  // Commits all the changes to the buffer (backfills the size field of this and
+  // all nested messages) and seals the message. Returns the size of the message
+  // (and all nested sub-messages), without taking into account any chunking.
+  // Finalize is idempotent and can be called several times w/o side effects.
+  uint32_t Finalize();
+
+  // Optional. If is_valid() == true, the corresponding memory region (its
+  // length == proto_utils::kMessageLengthFieldSize) is backfilled with the size
+  // of this message (minus |size_already_written| below). This is the mechanism
+  // used by messages to backfill their corresponding size field in the parent
+  // message.
+  uint8_t* size_field() const { return size_field_; }
+  void set_size_field(uint8_t* size_field) { size_field_ = size_field; }
+
+  // This is to deal with case of backfilling the size of a root (non-nested)
+  // message which is split into multiple chunks. Upon finalization only the
+  // partial size that lies in the last chunk has to be backfilled.
+  void inc_size_already_written(uint32_t sz) { size_already_written_ += sz; }
+
+  Message* nested_message() { return nested_message_; }
+
+  bool is_finalized() const { return finalized_; }
+
+#if PERFETTO_DCHECK_IS_ON()
+  void set_handle(MessageHandleBase* handle) { handle_ = handle; }
+#endif
+
+  // Proto types: uint64, uint32, int64, int32, bool, enum.
+  template <typename T>
+  void AppendVarInt(uint32_t field_id, T value) {
+    if (nested_message_)
+      EndNestedMessage();
+
+    uint8_t buffer[proto_utils::kMaxSimpleFieldEncodedSize];
+    uint8_t* pos = buffer;
+
+    pos = proto_utils::WriteVarInt(proto_utils::MakeTagVarInt(field_id), pos);
+    // WriteVarInt encodes signed values in two's complement form.
+    pos = proto_utils::WriteVarInt(value, pos);
+    WriteToStream(buffer, pos);
+  }
+
+  // Proto types: sint64, sint32.
+  template <typename T>
+  void AppendSignedVarInt(uint32_t field_id, T value) {
+    AppendVarInt(field_id, proto_utils::ZigZagEncode(value));
+  }
+
+  // Proto types: bool, enum (small).
+  // Faster version of AppendVarInt for tiny numbers.
+  void AppendTinyVarInt(uint32_t field_id, int32_t value) {
+    PERFETTO_DCHECK(0 <= value && value < 0x80);
+    if (nested_message_)
+      EndNestedMessage();
+
+    uint8_t buffer[proto_utils::kMaxSimpleFieldEncodedSize];
+    uint8_t* pos = buffer;
+    // MakeTagVarInt gets super optimized here for constexpr.
+    pos = proto_utils::WriteVarInt(proto_utils::MakeTagVarInt(field_id), pos);
+    *pos++ = static_cast<uint8_t>(value);
+    WriteToStream(buffer, pos);
+  }
+
+  // Proto types: fixed64, sfixed64, fixed32, sfixed32, double, float.
+  template <typename T>
+  void AppendFixed(uint32_t field_id, T value) {
+    if (nested_message_)
+      EndNestedMessage();
+
+    uint8_t buffer[proto_utils::kMaxSimpleFieldEncodedSize];
+    uint8_t* pos = buffer;
+
+    pos = proto_utils::WriteVarInt(proto_utils::MakeTagFixed<T>(field_id), pos);
+    memcpy(pos, &value, sizeof(T));
+    pos += sizeof(T);
+    // TODO: Optimize memcpy performance, see http://crbug.com/624311 .
+    WriteToStream(buffer, pos);
+  }
+
+  void AppendString(uint32_t field_id, const char* str);
+  void AppendBytes(uint32_t field_id, const void* value, size_t size);
+
+  // Append raw bytes for a field, using the supplied |ranges| to
+  // copy from |num_ranges| individual buffers.
+  size_t AppendScatteredBytes(uint32_t field_id,
+                              ContiguousMemoryRange* ranges,
+                              size_t num_ranges);
+
+  // Begins a nested message, using the static storage provided by the parent
+  // class (see comment in |nested_messages_arena_|). The nested message ends
+  // either when Finalize() is called or when any other Append* method is called
+  // in the parent class.
+  // The template argument T is supposed to be a stub class auto generated from
+  // a .proto, hence a subclass of Message.
+  template <class T>
+  T* BeginNestedMessage(uint32_t field_id) {
+    // This is to prevent subclasses (which should be autogenerated, though), to
+    // introduce extra state fields (which wouldn't be initialized by Reset()).
+    static_assert(std::is_base_of<Message, T>::value,
+                  "T must be a subclass of Message");
+    static_assert(sizeof(T) == sizeof(Message),
+                  "Message subclasses cannot introduce extra state.");
+    T* message = reinterpret_cast<T*>(nested_messages_arena_);
+    BeginNestedMessageInternal(field_id, message);
+    return message;
+  }
+
+ private:
+  Message(const Message&) = delete;
+  Message& operator=(const Message&) = delete;
+
+  void BeginNestedMessageInternal(uint32_t field_id, Message*);
+
+  // Called by Finalize and Append* methods.
+  void EndNestedMessage();
+
+  void WriteToStream(const uint8_t* src_begin, const uint8_t* src_end) {
+    PERFETTO_DCHECK(!finalized_);
+    PERFETTO_DCHECK(src_begin <= src_end);
+    const uint32_t size = static_cast<uint32_t>(src_end - src_begin);
+    stream_writer_->WriteBytes(src_begin, size);
+    size_ += size;
+  }
+
+  // Only POD fields are allowed. This class's dtor is never called.
+  // See the comment on the static_assert in the corresponding .cc file.
+
+  // The stream writer interface used for the serialization.
+  ScatteredStreamWriter* stream_writer_;
+
+  uint8_t* size_field_;
+
+  // Keeps track of the size of the current message.
+  uint32_t size_;
+
+  // See comment for inc_size_already_written().
+  uint32_t size_already_written_;
+
+  // When true, no more changes to the message are allowed. This is to DCHECK
+  // attempts of writing to a message which has been Finalize()-d.
+  bool finalized_;
+
+  // Used to detect attemps to create messages with a nesting level >
+  // kMaxNestingDepth. |nesting_depth_| == 0 for root (non-nested) messages.
+  uint8_t nesting_depth_;
+
+#if PERFETTO_DCHECK_IS_ON()
+  // Current generation of message. Incremented on Reset.
+  // Used to detect stale handles.
+  uint32_t generation_;
+
+  MessageHandleBase* handle_;
+#endif
+
+  // Pointer to the last child message created through BeginNestedMessage(), if
+  // any, nullptr otherwise. There is no need to keep track of more than one
+  // message per nesting level as the proto-zero API contract mandates that
+  // nested fields can be filled only in a stacked fashion. In other words,
+  // nested messages are finalized and sealed when any other field is set in the
+  // parent message (or the parent message itself is finalized) and cannot be
+  // accessed anymore afterwards.
+  // TODO(primiano): optimization: I think that nested_message_, when non-null.
+  // will always be @ (this) + offsetof(nested_messages_arena_).
+  Message* nested_message_;
+
+  // The root message owns the storage for all its nested messages, up to a max
+  // of kMaxNestingDepth levels (see the .cc file). Note that the boundaries of
+  // the arena are meaningful only for the root message.
+  // Unfortunately we cannot put the sizeof() math here because we cannot sizeof
+  // the current class in a header. However the .cc file has a static_assert
+  // that guarantees that (see the Reset() method in the .cc file).
+  alignas(sizeof(void*)) uint8_t nested_messages_arena_[512];
+
+  // DO NOT add any fields below |nested_messages_arena_|. The memory layout of
+  // nested messages would overflow the storage allocated by the root message.
+};
+
+}  // namespace protozero
+
+#endif  // INCLUDE_PERFETTO_PROTOZERO_MESSAGE_H_
+// gen_amalgamated begin header: include/perfetto/protozero/message_handle.h
+/*
+ * Copyright (C) 2017 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef INCLUDE_PERFETTO_PROTOZERO_MESSAGE_HANDLE_H_
+#define INCLUDE_PERFETTO_PROTOZERO_MESSAGE_HANDLE_H_
+
+#include <functional>
+
+// gen_amalgamated expanded: #include "perfetto/base/export.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/message.h"
+
+namespace protozero {
+
+class Message;
+
+// MessageHandle allows to decouple the lifetime of a proto message
+// from the underlying storage. It gives the following guarantees:
+// - The underlying message is finalized (if still alive) if the handle goes
+//   out of scope.
+// - In Debug / DCHECK_ALWAYS_ON builds, the handle becomes null once the
+//   message is finalized. This is to enforce the append-only API. For instance
+//   when adding two repeated messages, the addition of the 2nd one forces
+//   the finalization of the first.
+// Think about this as a WeakPtr<Message> which calls
+// Message::Finalize() when going out of scope.
+
+class PERFETTO_EXPORT MessageHandleBase {
+ public:
+  class FinalizationListener {
+   public:
+    virtual ~FinalizationListener();
+    virtual void OnMessageFinalized(Message* message) = 0;
+  };
+
+  ~MessageHandleBase();
+
+  // Move-only type.
+  MessageHandleBase(MessageHandleBase&&) noexcept;
+  MessageHandleBase& operator=(MessageHandleBase&&);
+  explicit operator bool() const {
+#if PERFETTO_DCHECK_IS_ON()
+    PERFETTO_DCHECK(!message_ || generation_ == message_->generation_);
+#endif
+    return !!message_;
+  }
+
+  void set_finalization_listener(FinalizationListener* listener) {
+    listener_ = listener;
+  }
+
+ protected:
+  explicit MessageHandleBase(Message* = nullptr);
+  Message* operator->() const {
+#if PERFETTO_DCHECK_IS_ON()
+    PERFETTO_DCHECK(!message_ || generation_ == message_->generation_);
+#endif
+    return message_;
+  }
+  Message& operator*() const { return *(operator->()); }
+
+ private:
+  friend class Message;
+  MessageHandleBase(const MessageHandleBase&) = delete;
+  MessageHandleBase& operator=(const MessageHandleBase&) = delete;
+
+  void reset_message() {
+    // This is called by Message::Finalize().
+    PERFETTO_DCHECK(message_->is_finalized());
+    message_ = nullptr;
+    listener_ = nullptr;
+  }
+
+  void Move(MessageHandleBase&&);
+
+  void FinalizeMessage() {
+    // |message_| and |listener_| may be cleared by reset_message() during
+    // Message::Finalize().
+    auto* listener = listener_;
+    auto* message = message_;
+    message->Finalize();
+    if (listener)
+      listener->OnMessageFinalized(message);
+  }
+
+  Message* message_;
+  FinalizationListener* listener_ = nullptr;
+#if PERFETTO_DCHECK_IS_ON()
+  uint32_t generation_;
+#endif
+};
+
+template <typename T>
+class MessageHandle : public MessageHandleBase {
+ public:
+  MessageHandle() : MessageHandle(nullptr) {}
+  explicit MessageHandle(T* message) : MessageHandleBase(message) {}
+
+  T& operator*() const {
+    return static_cast<T&>(MessageHandleBase::operator*());
+  }
+
+  T* operator->() const {
+    return static_cast<T*>(MessageHandleBase::operator->());
+  }
+};
+
+}  // namespace protozero
+
+#endif  // INCLUDE_PERFETTO_PROTOZERO_MESSAGE_HANDLE_H_
+// gen_amalgamated begin header: include/perfetto/protozero/proto_decoder.h
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef INCLUDE_PERFETTO_PROTOZERO_PROTO_DECODER_H_
+#define INCLUDE_PERFETTO_PROTOZERO_PROTO_DECODER_H_
+
+#include <stdint.h>
+#include <array>
+#include <memory>
+#include <vector>
+
+// gen_amalgamated expanded: #include "perfetto/base/compiler.h"
+// gen_amalgamated expanded: #include "perfetto/base/logging.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/field.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/proto_utils.h"
+
+namespace protozero {
+
+// A generic protobuf decoder. Doesn't require any knowledge about the proto
+// schema. It tokenizes fields, retrieves their ID and type and exposes
+// accessors to retrieve its values.
+// It does NOT recurse in nested submessages, instead it just computes their
+// boundaries, recursion is left to the caller.
+// This class is designed to be used in perf-sensitive contexts. It does not
+// allocate and does not perform any proto semantic checks (e.g. repeated /
+// required / optional). It's supposedly safe wrt out-of-bounds memory accesses
+// (see proto_decoder_fuzzer.cc).
+// This class serves also as a building block for TypedProtoDecoder, used when
+// the schema is known at compile time.
+class ProtoDecoder {
+ public:
+  // Creates a ProtoDecoder using the given |buffer| with size |length| bytes.
+  inline ProtoDecoder(const uint8_t* buffer, size_t length)
+      : begin_(buffer), end_(buffer + length), read_ptr_(buffer) {}
+
+  // Reads the next field from the buffer and advances the read cursor. If a
+  // full field cannot be read, the returned Field will be invalid (i.e.
+  // field.valid() == false).
+  Field ReadField();
+
+  // Finds the first field with the given id. Doesn't affect the read cursor.
+  Field FindField(uint32_t field_id);
+
+  // Resets the read cursor to the start of the buffer.
+  inline void Reset() { read_ptr_ = begin_; }
+
+  // Resets the read cursor to the given position (must be within the buffer).
+  inline void Reset(const uint8_t* pos) {
+    PERFETTO_DCHECK(pos >= begin_ && pos < end_);
+    read_ptr_ = pos;
+  }
+
+  // Returns the position of read cursor, relative to the start of the buffer.
+  inline size_t read_offset() const {
+    return static_cast<size_t>(read_ptr_ - begin_);
+  }
+
+  inline size_t bytes_left() const {
+    PERFETTO_DCHECK(read_ptr_ <= end_);
+    return static_cast<size_t>(end_ - read_ptr_);
+  }
+
+  const uint8_t* begin() const { return begin_; }
+  const uint8_t* end() const { return end_; }
+
+ protected:
+  const uint8_t* const begin_;
+  const uint8_t* const end_;
+  const uint8_t* read_ptr_ = nullptr;
+};
+
+// An iterator-like class used to iterate through repeated fields. Used by
+// TypedProtoDecoder. The iteration sequence is a bit counter-intuitive due to
+// the fact that fields_[field_id] holds the *last* value of the field, not the
+// first, but the remaining storage holds repeated fields in FIFO order.
+// Assume that we push the 10,11,12 into a repeated field with ID=1.
+//
+// Decoder memory layout:  [  fields storage  ] [ repeated fields storage]
+// 1st iteration:           10
+// 2nd iteration:           11                   10
+// 3rd iteration:           12                   10 11
+//
+// We start the iteration @ fields_[num_fields], which is the start of the
+// repeated fields storage, proceed until the end and lastly jump @ fields_[id].
+class RepeatedFieldIterator {
+ public:
+  RepeatedFieldIterator(uint32_t field_id,
+                        const Field* begin,
+                        const Field* end,
+                        const Field* last)
+      : field_id_(field_id), iter_(begin), end_(end), last_(last) {
+    FindNextMatchingId();
+  }
+
+  inline const Field* operator->() const { return &*iter_; }
+  inline const Field& operator*() const { return *iter_; }
+  inline explicit operator bool() const { return iter_ != end_; }
+
+  RepeatedFieldIterator& operator++() {
+    PERFETTO_DCHECK(iter_ != end_);
+    if (iter_ == last_) {
+      iter_ = end_;
+      return *this;
+    }
+    ++iter_;
+    FindNextMatchingId();
+    return *this;
+  }
+
+ private:
+  inline void FindNextMatchingId() {
+    PERFETTO_DCHECK(iter_ != last_);
+    for (; iter_ != end_; ++iter_) {
+      if (iter_->id() == field_id_)
+        return;
+    }
+    iter_ = last_->valid() ? last_ : end_;
+  }
+
+  uint32_t field_id_;
+
+  // Initially points to the beginning of the repeated field storage, then is
+  // incremented as we call operator++().
+  const Field* iter_;
+
+  // Always points to fields_[size_], i.e. past the end of the storage.
+  const Field* end_;
+
+  // Always points to fields_[field_id].
+  const Field* last_;
+};
+
+// This decoder loads all fields upfront, without recursing in nested messages.
+// It is used as a base class for typed decoders generated by the pbzero plugin.
+// The split between TypedProtoDecoderBase and TypedProtoDecoder<> is to have
+// unique definition of functions like ParseAllFields() and ExpandHeapStorage().
+// The storage (either on-stack or on-heap) for this class is organized as
+// follows:
+// |-------------------------- fields_ ----------------------|
+// [ field 0 (invalid) ] [ fields 1 .. N ] [ repeated fields ]
+//                                        ^                  ^
+//                                        num_fields_        size_
+class TypedProtoDecoderBase : public ProtoDecoder {
+ public:
+  // If the field |id| is known at compile time, prefer the templated
+  // specialization at<kFieldNumber>().
+  inline const Field& Get(uint32_t id) {
+    return PERFETTO_LIKELY(id < num_fields_) ? fields_[id] : fields_[0];
+  }
+
+  // Returns an object that allows to iterate over all instances of a repeated
+  // field given its id. Example usage:
+  // for (auto it = decoder.GetRepeated(N); it; ++it) { ... }
+  inline RepeatedFieldIterator GetRepeated(uint32_t field_id) const {
+    return RepeatedFieldIterator(field_id, &fields_[num_fields_],
+                                 &fields_[size_], &fields_[field_id]);
+  }
+
+ protected:
+  TypedProtoDecoderBase(Field* storage,
+                        uint32_t num_fields,
+                        uint32_t capacity,
+                        const uint8_t* buffer,
+                        size_t length)
+      : ProtoDecoder(buffer, length),
+        fields_(storage),
+        num_fields_(num_fields),
+        size_(num_fields),
+        capacity_(capacity) {
+    // The reason why Field needs to be trivially de/constructible is to avoid
+    // implicit initializers on all the ~1000 entries. We need it to initialize
+    // only on the first |max_field_id| fields, the remaining capacity doesn't
+    // require initialization.
+    static_assert(PERFETTO_IS_TRIVIALLY_CONSTRUCTIBLE(Field) &&
+                      std::is_trivially_destructible<Field>::value &&
+                      std::is_trivial<Field>::value,
+                  "Field must be a trivial aggregate type");
+    memset(fields_, 0, sizeof(Field) * num_fields_);
+  }
+
+  void ParseAllFields();
+
+  // Called when the default on-stack storage is exhausted and new repeated
+  // fields need to be pushed.
+  void ExpandHeapStorage();
+
+  // Used only in presence of a large number of repeated fields, when the
+  // default on-stack storage is exhausted.
+  std::unique_ptr<Field[]> heap_storage_;
+
+  // Points to the storage, either on-stack (default, provided by the template
+  // specialization) or |heap_storage_| after ExpandHeapStorage() is called, in
+  // case of a large number of repeated fields.
+  Field* fields_;
+
+  // Number of fields without accounting repeated storage. This is equal to
+  // MAX_FIELD_ID + 1 (to account for the invalid 0th field).
+  // This value is always <= size_ (and hence <= capacity);
+  uint32_t num_fields_;
+
+  // Number of active |fields_| entries. This is initially equal to the highest
+  // number of fields for the message (num_fields_ == MAX_FIELD_ID + 1) and can
+  // grow up to |capacity_| in the case of repeated fields.
+  uint32_t size_;
+
+  // Initially equal to kFieldsCapacity of the TypedProtoDecoder
+  // specialization. Can grow when falling back on heap-based storage, in which
+  // case it represents the size (#fields with each entry of a repeated field
+  // counted individually) of the |heap_storage_| array.
+  uint32_t capacity_;
+};
+
+// Template class instantiated by the auto-generated decoder classes declared in
+// xxx.pbzero.h files.
+template <int MAX_FIELD_ID, bool HAS_REPEATED_FIELDS>
+class TypedProtoDecoder : public TypedProtoDecoderBase {
+ public:
+  TypedProtoDecoder(const uint8_t* buffer, size_t length)
+      : TypedProtoDecoderBase(on_stack_storage_,
+                              /*num_fields=*/MAX_FIELD_ID + 1,
+                              kCapacity,
+                              buffer,
+                              length) {
+    static_assert(MAX_FIELD_ID <= kMaxDecoderFieldId, "Field ordinal too high");
+    TypedProtoDecoderBase::ParseAllFields();
+  }
+
+  template <uint32_t FIELD_ID>
+  inline const Field& at() const {
+    static_assert(FIELD_ID <= MAX_FIELD_ID, "FIELD_ID > MAX_FIELD_ID");
+    return fields_[FIELD_ID];
+  }
+
+ private:
+  // In the case of non-repeated fields, this constant defines the highest field
+  // id we are able to decode. This is to limit the on-stack storage.
+  // In the case of repeated fields, this constant defines the max number of
+  // repeated fields that we'll be able to store before falling back on the
+  // heap. Keep this value in sync with the one in protozero_generator.cc.
+  static constexpr size_t kMaxDecoderFieldId = 999;
+
+  // If we the message has no repeated fields we need at most N Field entries
+  // in the on-stack storage, where N is the highest field id.
+  // Otherwise we need some room to store repeated fields.
+  static constexpr size_t kCapacity =
+      1 + (HAS_REPEATED_FIELDS ? kMaxDecoderFieldId : MAX_FIELD_ID);
+
+  Field on_stack_storage_[kCapacity];
+};
+
+}  // namespace protozero
+
+#endif  // INCLUDE_PERFETTO_PROTOZERO_PROTO_DECODER_H_
+// gen_amalgamated begin header: include/perfetto/protozero/proto_utils.h
+/*
+ * Copyright (C) 2017 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef INCLUDE_PERFETTO_PROTOZERO_PROTO_UTILS_H_
+#define INCLUDE_PERFETTO_PROTOZERO_PROTO_UTILS_H_
+
+#include <inttypes.h>
+#include <stddef.h>
+
+#include <type_traits>
+
+// gen_amalgamated expanded: #include "perfetto/base/logging.h"
+
+namespace protozero {
+namespace proto_utils {
+
+// See https://developers.google.com/protocol-buffers/docs/encoding wire types.
+// This is a type encoded into the proto that provides just enough info to
+// find the length of the following value.
+enum class ProtoWireType : uint32_t {
+  kVarInt = 0,
+  kFixed64 = 1,
+  kLengthDelimited = 2,
+  kFixed32 = 5,
+};
+
+// This is the type defined in the proto for each field. This information
+// is used to decide the translation strategy when writing the trace.
+enum class ProtoSchemaType {
+  kUnknown = 0,
+  kDouble,
+  kFloat,
+  kInt64,
+  kUint64,
+  kInt32,
+  kFixed64,
+  kFixed32,
+  kBool,
+  kString,
+  kGroup,  // Deprecated (proto2 only)
+  kMessage,
+  kBytes,
+  kUint32,
+  kEnum,
+  kSfixed32,
+  kSfixed64,
+  kSint32,
+  kSint64,
+};
+
+inline const char* ProtoSchemaToString(ProtoSchemaType v) {
+  switch (v) {
+    case ProtoSchemaType::kUnknown:
+      return "unknown";
+    case ProtoSchemaType::kDouble:
+      return "double";
+    case ProtoSchemaType::kFloat:
+      return "float";
+    case ProtoSchemaType::kInt64:
+      return "int64";
+    case ProtoSchemaType::kUint64:
+      return "uint64";
+    case ProtoSchemaType::kInt32:
+      return "int32";
+    case ProtoSchemaType::kFixed64:
+      return "fixed64";
+    case ProtoSchemaType::kFixed32:
+      return "fixed32";
+    case ProtoSchemaType::kBool:
+      return "bool";
+    case ProtoSchemaType::kString:
+      return "string";
+    case ProtoSchemaType::kGroup:
+      return "group";
+    case ProtoSchemaType::kMessage:
+      return "message";
+    case ProtoSchemaType::kBytes:
+      return "bytes";
+    case ProtoSchemaType::kUint32:
+      return "uint32";
+    case ProtoSchemaType::kEnum:
+      return "enum";
+    case ProtoSchemaType::kSfixed32:
+      return "sfixed32";
+    case ProtoSchemaType::kSfixed64:
+      return "sfixed64";
+    case ProtoSchemaType::kSint32:
+      return "sint32";
+    case ProtoSchemaType::kSint64:
+      return "sint64";
+  }
+  // For gcc:
+  PERFETTO_DCHECK(false);
+  return "";
+}
+
+// Maximum message size supported: 256 MiB (4 x 7-bit due to varint encoding).
+constexpr size_t kMessageLengthFieldSize = 4;
+constexpr size_t kMaxMessageLength = (1u << (kMessageLengthFieldSize * 7)) - 1;
+
+// Field tag is encoded as 32-bit varint (5 bytes at most).
+// Largest value of simple (not length-delimited) field is 64-bit varint
+// (10 bytes at most). 15 bytes buffer is enough to store a simple field.
+constexpr size_t kMaxTagEncodedSize = 5;
+constexpr size_t kMaxSimpleFieldEncodedSize = kMaxTagEncodedSize + 10;
+
+// Proto types: (int|uint|sint)(32|64), bool, enum.
+constexpr uint32_t MakeTagVarInt(uint32_t field_id) {
+  return (field_id << 3) | static_cast<uint32_t>(ProtoWireType::kVarInt);
+}
+
+// Proto types: fixed64, sfixed64, fixed32, sfixed32, double, float.
+template <typename T>
+constexpr uint32_t MakeTagFixed(uint32_t field_id) {
+  static_assert(sizeof(T) == 8 || sizeof(T) == 4, "Value must be 4 or 8 bytes");
+  return (field_id << 3) |
+         static_cast<uint32_t>((sizeof(T) == 8 ? ProtoWireType::kFixed64
+                                               : ProtoWireType::kFixed32));
+}
+
+// Proto types: string, bytes, embedded messages.
+constexpr uint32_t MakeTagLengthDelimited(uint32_t field_id) {
+  return (field_id << 3) |
+         static_cast<uint32_t>(ProtoWireType::kLengthDelimited);
+}
+
+// Proto types: sint64, sint32.
+template <typename T>
+inline typename std::make_unsigned<T>::type ZigZagEncode(T value) {
+  return static_cast<typename std::make_unsigned<T>::type>(
+      (value << 1) ^ (value >> (sizeof(T) * 8 - 1)));
+}
+
+template <typename T>
+inline uint8_t* WriteVarInt(T value, uint8_t* target) {
+  // If value is <= 0 we must first sign extend to int64_t (see [1]).
+  // Finally we always cast to an unsigned value to to avoid arithmetic
+  // (sign expanding) shifts in the while loop.
+  // [1]: "If you use int32 or int64 as the type for a negative number, the
+  // resulting varint is always ten bytes long".
+  // - developers.google.com/protocol-buffers/docs/encoding
+  // So for each input type we do the following casts:
+  // uintX_t -> uintX_t -> uintX_t
+  // int8_t  -> int64_t -> uint64_t
+  // int16_t -> int64_t -> uint64_t
+  // int32_t -> int64_t -> uint64_t
+  // int64_t -> int64_t -> uint64_t
+  using MaybeExtendedType =
+      typename std::conditional<std::is_unsigned<T>::value, T, int64_t>::type;
+  using UnsignedType = typename std::make_unsigned<MaybeExtendedType>::type;
+
+  MaybeExtendedType extended_value = static_cast<MaybeExtendedType>(value);
+  UnsignedType unsigned_value = static_cast<UnsignedType>(extended_value);
+
+  while (unsigned_value >= 0x80) {
+    *target++ = static_cast<uint8_t>(unsigned_value) | 0x80;
+    unsigned_value >>= 7;
+  }
+  *target = static_cast<uint8_t>(unsigned_value);
+  return target + 1;
+}
+
+// Writes a fixed-size redundant encoding of the given |value|. This is
+// used to backfill fixed-size reservations for the length field using a
+// non-canonical varint encoding (e.g. \x81\x80\x80\x00 instead of \x01).
+// See https://github.com/google/protobuf/issues/1530.
+// In particular, this is used for nested messages. The size of a nested message
+// is not known until all its field have been written. |kMessageLengthFieldSize|
+// bytes are reserved to encode the size field and backfilled at the end.
+inline void WriteRedundantVarInt(uint32_t value, uint8_t* buf) {
+  for (size_t i = 0; i < kMessageLengthFieldSize; ++i) {
+    const uint8_t msb = (i < kMessageLengthFieldSize - 1) ? 0x80 : 0;
+    buf[i] = static_cast<uint8_t>(value) | msb;
+    value >>= 7;
+  }
+}
+
+template <uint32_t field_id>
+void StaticAssertSingleBytePreamble() {
+  static_assert(field_id < 16,
+                "Proto field id too big to fit in a single byte preamble");
+}
+
+// Parses a VarInt from the encoded buffer [start, end). |end| is STL-style and
+// points one byte past the end of buffer.
+// The parsed int value is stored in the output arg |value|. Returns a pointer
+// to the next unconsumed byte (so start < retval <= end) or |start| if the
+// VarInt could not be fully parsed because there was not enough space in the
+// buffer.
+inline const uint8_t* ParseVarInt(const uint8_t* start,
+                                  const uint8_t* end,
+                                  uint64_t* value) {
+  const uint8_t* pos = start;
+  uint64_t shift = 0;
+  *value = 0;
+  do {
+    if (PERFETTO_UNLIKELY(pos >= end)) {
+      *value = 0;
+      return start;
+    }
+    PERFETTO_DCHECK(shift < 64ull);
+    *value |= static_cast<uint64_t>(*pos & 0x7f) << shift;
+    shift += 7;
+  } while (*pos++ & 0x80);
+  return pos;
+}
+
+}  // namespace proto_utils
+}  // namespace protozero
+
+#endif  // INCLUDE_PERFETTO_PROTOZERO_PROTO_UTILS_H_
+// gen_amalgamated begin header: include/perfetto/protozero/scattered_heap_buffer.h
+/*
+ * Copyright (C) 2017 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef INCLUDE_PERFETTO_PROTOZERO_SCATTERED_HEAP_BUFFER_H_
+#define INCLUDE_PERFETTO_PROTOZERO_SCATTERED_HEAP_BUFFER_H_
+
+#include <memory>
+#include <string>
+#include <vector>
+
+// gen_amalgamated expanded: #include "perfetto/base/export.h"
+// gen_amalgamated expanded: #include "perfetto/base/logging.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/scattered_stream_writer.h"
+
+namespace protozero {
+
+class Message;
+
+class PERFETTO_EXPORT ScatteredHeapBuffer
+    : public protozero::ScatteredStreamWriter::Delegate {
+ public:
+  class PERFETTO_EXPORT Slice {
+   public:
+    explicit Slice(size_t size);
+    Slice(Slice&& slice) noexcept;
+    ~Slice();
+
+    inline protozero::ContiguousMemoryRange GetTotalRange() const {
+      return {buffer_.get(), buffer_.get() + size_};
+    }
+
+    inline protozero::ContiguousMemoryRange GetUsedRange() const {
+      return {buffer_.get(), buffer_.get() + size_ - unused_bytes_};
+    }
+
+    uint8_t* start() const { return buffer_.get(); }
+    size_t size() const { return size_; }
+    size_t unused_bytes() const { return unused_bytes_; }
+    void set_unused_bytes(size_t unused_bytes) {
+      PERFETTO_DCHECK(unused_bytes_ <= size_);
+      unused_bytes_ = unused_bytes;
+    }
+
+   private:
+    std::unique_ptr<uint8_t[]> buffer_;
+    const size_t size_;
+    size_t unused_bytes_;
+  };
+
+  ScatteredHeapBuffer(size_t initial_slice_size_bytes = 128,
+                      size_t maximum_slice_size_bytes = 128 * 1024);
+  ~ScatteredHeapBuffer() override;
+
+  // protozero::ScatteredStreamWriter::Delegate implementation.
+  protozero::ContiguousMemoryRange GetNewBuffer() override;
+
+  // Stitch all the slices into a single contiguous buffer.
+  std::vector<uint8_t> StitchSlices();
+
+  const std::vector<Slice>& slices() const { return slices_; }
+
+  void set_writer(protozero::ScatteredStreamWriter* writer) {
+    writer_ = writer;
+  }
+
+  // Update unused_bytes() of the current |Slice| based on the writer's state.
+  void AdjustUsedSizeOfCurrentSlice();
+
+  // Returns the total size the slices occupy in heap memory (including unused).
+  size_t GetTotalSize();
+
+ private:
+  size_t next_slice_size_;
+  const size_t maximum_slice_size_;
+  protozero::ScatteredStreamWriter* writer_ = nullptr;
+  std::vector<Slice> slices_;
+};
+
+// Helper function to create heap-based protozero messages in one line.
+// This is a convenience wrapper, mostly for tests, to avoid having to do:
+//   MyMessage msg;
+//   ScatteredHeapBuffer shb;
+//   ScatteredStreamWriter writer(&shb);
+//   shb.set_writer(&writer);
+//   msg.Reset(&shb);
+// Just to get an easily serializable message. Instead this allows simply:
+//   HeapBuffered<MyMessage> msg;
+//   msg->set_stuff(...);
+//   msg->SerializeAsString();
+template <typename T = ::protozero::Message>
+class HeapBuffered {
+ public:
+  HeapBuffered() : shb_(4096, 4096), writer_(&shb_) {
+    shb_.set_writer(&writer_);
+    msg_.Reset(&writer_);
+  }
+
+  // This can't be neither copied nor moved because Message hands out pointers
+  // to itself when creating submessages.
+  HeapBuffered(const HeapBuffered&) = delete;
+  HeapBuffered& operator=(const HeapBuffered&) = delete;
+  HeapBuffered(HeapBuffered&&) = delete;
+  HeapBuffered& operator=(HeapBuffered&&) = delete;
+
+  T* get() { return &msg_; }
+  T* operator->() { return &msg_; }
+
+  std::vector<uint8_t> SerializeAsArray() {
+    msg_.Finalize();
+    return shb_.StitchSlices();
+  }
+
+  std::string SerializeAsString() {
+    auto vec = SerializeAsArray();
+    return std::string(reinterpret_cast<const char*>(vec.data()), vec.size());
+  }
+
+ private:
+  ScatteredHeapBuffer shb_;
+  ScatteredStreamWriter writer_;
+  T msg_;
+};
+
+}  // namespace protozero
+
+#endif  // INCLUDE_PERFETTO_PROTOZERO_SCATTERED_HEAP_BUFFER_H_
+// gen_amalgamated begin header: include/perfetto/protozero/scattered_stream_null_delegate.h
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef INCLUDE_PERFETTO_PROTOZERO_SCATTERED_STREAM_NULL_DELEGATE_H_
+#define INCLUDE_PERFETTO_PROTOZERO_SCATTERED_STREAM_NULL_DELEGATE_H_
+
+#include <memory>
+#include <vector>
+
+// gen_amalgamated expanded: #include "perfetto/base/export.h"
+// gen_amalgamated expanded: #include "perfetto/base/logging.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/contiguous_memory_range.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/scattered_stream_writer.h"
+
+namespace protozero {
+
+class PERFETTO_EXPORT ScatteredStreamWriterNullDelegate
+    : public ScatteredStreamWriter::Delegate {
+ public:
+  explicit ScatteredStreamWriterNullDelegate(size_t chunk_size);
+  ~ScatteredStreamWriterNullDelegate() override;
+
+  // protozero::ScatteredStreamWriter::Delegate implementation.
+  ContiguousMemoryRange GetNewBuffer() override;
+
+ private:
+  const size_t chunk_size_;
+  std::unique_ptr<uint8_t[]> chunk_;
+};
+
+}  // namespace protozero
+
+#endif  // INCLUDE_PERFETTO_PROTOZERO_SCATTERED_STREAM_NULL_DELEGATE_H_
+// gen_amalgamated begin header: include/perfetto/protozero/scattered_stream_writer.h
+/*
+ * Copyright (C) 2017 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef INCLUDE_PERFETTO_PROTOZERO_SCATTERED_STREAM_WRITER_H_
+#define INCLUDE_PERFETTO_PROTOZERO_SCATTERED_STREAM_WRITER_H_
+
+#include <assert.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
+// gen_amalgamated expanded: #include "perfetto/base/compiler.h"
+// gen_amalgamated expanded: #include "perfetto/base/export.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/contiguous_memory_range.h"
+
+namespace protozero {
+
+// This class deals with the following problem: append-only proto messages want
+// to write a stream of bytes, without caring about the implementation of the
+// underlying buffer (which concretely will be either the trace ring buffer
+// or a heap-allocated buffer). The main deal is: proto messages don't know in
+// advance what their size will be.
+// Due to the tracing buffer being split into fixed-size chunks, on some
+// occasions, these writes need to be spread over two (or more) non-contiguous
+// chunks of memory. Similarly, when the buffer is backed by the heap, we want
+// to avoid realloc() calls, as they might cause a full copy of the contents
+// of the buffer.
+// The purpose of this class is to abstract away the non-contiguous write logic.
+// This class knows how to deal with writes as long as they fall in the same
+// ContiguousMemoryRange and defers the chunk-chaining logic to the Delegate.
+class PERFETTO_EXPORT ScatteredStreamWriter {
+ public:
+  class PERFETTO_EXPORT Delegate {
+   public:
+    virtual ~Delegate();
+    virtual ContiguousMemoryRange GetNewBuffer() = 0;
+  };
+
+  explicit ScatteredStreamWriter(Delegate* delegate);
+  ~ScatteredStreamWriter();
+
+  inline void WriteByte(uint8_t value) {
+    if (write_ptr_ >= cur_range_.end)
+      Extend();
+    *write_ptr_++ = value;
+  }
+
+  // Assumes that the caller checked that there is enough headroom.
+  // TODO(primiano): perf optimization, this is a tracing hot path. The
+  // compiler can make strong optimization on memcpy if the size arg is a
+  // constexpr. Make a templated variant of this for fixed-size writes.
+  // TODO(primiano): restrict / noalias might also help.
+  inline void WriteBytesUnsafe(const uint8_t* src, size_t size) {
+    uint8_t* const end = write_ptr_ + size;
+    assert(end <= cur_range_.end);
+    memcpy(write_ptr_, src, size);
+    write_ptr_ = end;
+  }
+
+  inline void WriteBytes(const uint8_t* src, size_t size) {
+    uint8_t* const end = write_ptr_ + size;
+    if (PERFETTO_LIKELY(end <= cur_range_.end))
+      return WriteBytesUnsafe(src, size);
+    WriteBytesSlowPath(src, size);
+  }
+
+  void WriteBytesSlowPath(const uint8_t* src, size_t size);
+
+  // Reserves a fixed amount of bytes to be backfilled later. The reserved range
+  // is guaranteed to be contiguous and not span across chunks. |size| has to be
+  // <= than the size of a new buffer returned by the Delegate::GetNewBuffer().
+  uint8_t* ReserveBytes(size_t size);
+
+  // Fast (but unsafe) version of the above. The caller must have previously
+  // checked that there are at least |size| contiguous bytes available.
+  // Returns only the start pointer of the reservation.
+  uint8_t* ReserveBytesUnsafe(size_t size) {
+    uint8_t* begin = write_ptr_;
+    write_ptr_ += size;
+    assert(write_ptr_ <= cur_range_.end);
+    return begin;
+  }
+
+  // Resets the buffer boundaries and the write pointer to the given |range|.
+  // Subsequent WriteByte(s) will write into |range|.
+  void Reset(ContiguousMemoryRange range);
+
+  // Number of contiguous free bytes in |cur_range_| that can be written without
+  // requesting a new buffer.
+  size_t bytes_available() const {
+    return static_cast<size_t>(cur_range_.end - write_ptr_);
+  }
+
+  uint8_t* write_ptr() const { return write_ptr_; }
+
+  uint64_t written() const {
+    return written_previously_ +
+           static_cast<uint64_t>(write_ptr_ - cur_range_.begin);
+  }
+
+ private:
+  ScatteredStreamWriter(const ScatteredStreamWriter&) = delete;
+  ScatteredStreamWriter& operator=(const ScatteredStreamWriter&) = delete;
+
+  void Extend();
+
+  Delegate* const delegate_;
+  ContiguousMemoryRange cur_range_;
+  uint8_t* write_ptr_;
+  uint64_t written_previously_ = 0;
+};
+
+}  // namespace protozero
+
+#endif  // INCLUDE_PERFETTO_PROTOZERO_SCATTERED_STREAM_WRITER_H_
 // gen_amalgamated begin header: out/tmp.gen_amalgamated/gen/protos/perfetto/common/android_log_constants.pbzero.h
 // Autogenerated by the ProtoZero compiler plugin. DO NOT EDIT.
 
@@ -4918,6 +6325,148 @@ namespace protos {
 namespace pbzero {
 
 class GpuCounterDescriptor_GpuCounterSpec;
+enum GpuCounterDescriptor_MeasureUnit : int32_t;
+
+enum GpuCounterDescriptor_MeasureUnit : int32_t {
+  GpuCounterDescriptor_MeasureUnit_ACRE = 0,
+  GpuCounterDescriptor_MeasureUnit_ACRE_FOOT = 1,
+  GpuCounterDescriptor_MeasureUnit_AMPERE = 2,
+  GpuCounterDescriptor_MeasureUnit_ARC_MINUTE = 3,
+  GpuCounterDescriptor_MeasureUnit_ARC_SECOND = 4,
+  GpuCounterDescriptor_MeasureUnit_ASTRONOMICAL_UNIT = 5,
+  GpuCounterDescriptor_MeasureUnit_BIT = 6,
+  GpuCounterDescriptor_MeasureUnit_BUSHEL = 7,
+  GpuCounterDescriptor_MeasureUnit_BYTE = 8,
+  GpuCounterDescriptor_MeasureUnit_CALORIE = 9,
+  GpuCounterDescriptor_MeasureUnit_CARAT = 10,
+  GpuCounterDescriptor_MeasureUnit_CELSIUS = 11,
+  GpuCounterDescriptor_MeasureUnit_CENTILITER = 12,
+  GpuCounterDescriptor_MeasureUnit_CENTIMETER = 13,
+  GpuCounterDescriptor_MeasureUnit_CENTURY = 14,
+  GpuCounterDescriptor_MeasureUnit_CUBIC_CENTIMETER = 15,
+  GpuCounterDescriptor_MeasureUnit_CUBIC_FOOT = 16,
+  GpuCounterDescriptor_MeasureUnit_CUBIC_INCH = 17,
+  GpuCounterDescriptor_MeasureUnit_CUBIC_KILOMETER = 18,
+  GpuCounterDescriptor_MeasureUnit_CUBIC_METER = 19,
+  GpuCounterDescriptor_MeasureUnit_CUBIC_MILE = 20,
+  GpuCounterDescriptor_MeasureUnit_CUBIC_YARD = 21,
+  GpuCounterDescriptor_MeasureUnit_CUP = 22,
+  GpuCounterDescriptor_MeasureUnit_CUP_METRIC = 23,
+  GpuCounterDescriptor_MeasureUnit_DAY = 24,
+  GpuCounterDescriptor_MeasureUnit_DECILITER = 25,
+  GpuCounterDescriptor_MeasureUnit_DECIMETER = 26,
+  GpuCounterDescriptor_MeasureUnit_DEGREE = 27,
+  GpuCounterDescriptor_MeasureUnit_FAHRENHEIT = 28,
+  GpuCounterDescriptor_MeasureUnit_FATHOM = 29,
+  GpuCounterDescriptor_MeasureUnit_FLUID_OUNCE = 30,
+  GpuCounterDescriptor_MeasureUnit_FOODCALORIE = 31,
+  GpuCounterDescriptor_MeasureUnit_FOOT = 32,
+  GpuCounterDescriptor_MeasureUnit_FURLONG = 33,
+  GpuCounterDescriptor_MeasureUnit_GALLON = 34,
+  GpuCounterDescriptor_MeasureUnit_GALLON_IMPERIAL = 35,
+  GpuCounterDescriptor_MeasureUnit_GENERIC_TEMPERATURE = 36,
+  GpuCounterDescriptor_MeasureUnit_GIGABIT = 37,
+  GpuCounterDescriptor_MeasureUnit_GIGABYTE = 38,
+  GpuCounterDescriptor_MeasureUnit_GIGAHERTZ = 39,
+  GpuCounterDescriptor_MeasureUnit_GIGAWATT = 40,
+  GpuCounterDescriptor_MeasureUnit_GRAM = 41,
+  GpuCounterDescriptor_MeasureUnit_G_FORCE = 42,
+  GpuCounterDescriptor_MeasureUnit_HECTARE = 43,
+  GpuCounterDescriptor_MeasureUnit_HECTOLITER = 44,
+  GpuCounterDescriptor_MeasureUnit_HECTOPASCAL = 45,
+  GpuCounterDescriptor_MeasureUnit_HERTZ = 46,
+  GpuCounterDescriptor_MeasureUnit_HORSEPOWER = 47,
+  GpuCounterDescriptor_MeasureUnit_HOUR = 48,
+  GpuCounterDescriptor_MeasureUnit_INCH = 49,
+  GpuCounterDescriptor_MeasureUnit_INCH_HG = 50,
+  GpuCounterDescriptor_MeasureUnit_JOULE = 51,
+  GpuCounterDescriptor_MeasureUnit_KARAT = 52,
+  GpuCounterDescriptor_MeasureUnit_KELVIN = 53,
+  GpuCounterDescriptor_MeasureUnit_KILOBIT = 54,
+  GpuCounterDescriptor_MeasureUnit_KILOBYTE = 55,
+  GpuCounterDescriptor_MeasureUnit_KILOCALORIE = 56,
+  GpuCounterDescriptor_MeasureUnit_KILOGRAM = 57,
+  GpuCounterDescriptor_MeasureUnit_KILOHERTZ = 58,
+  GpuCounterDescriptor_MeasureUnit_KILOJOULE = 59,
+  GpuCounterDescriptor_MeasureUnit_KILOMETER = 60,
+  GpuCounterDescriptor_MeasureUnit_KILOMETER_PER_HOUR = 61,
+  GpuCounterDescriptor_MeasureUnit_KILOWATT = 62,
+  GpuCounterDescriptor_MeasureUnit_KILOWATT_HOUR = 63,
+  GpuCounterDescriptor_MeasureUnit_KNOT = 64,
+  GpuCounterDescriptor_MeasureUnit_LIGHT_YEAR = 65,
+  GpuCounterDescriptor_MeasureUnit_LITER = 66,
+  GpuCounterDescriptor_MeasureUnit_LITER_PER_100KILOMETERS = 67,
+  GpuCounterDescriptor_MeasureUnit_LITER_PER_KILOMETER = 68,
+  GpuCounterDescriptor_MeasureUnit_LUX = 69,
+  GpuCounterDescriptor_MeasureUnit_MEGABIT = 70,
+  GpuCounterDescriptor_MeasureUnit_MEGABYTE = 71,
+  GpuCounterDescriptor_MeasureUnit_MEGAHERTZ = 72,
+  GpuCounterDescriptor_MeasureUnit_MEGALITER = 73,
+  GpuCounterDescriptor_MeasureUnit_MEGAWATT = 74,
+  GpuCounterDescriptor_MeasureUnit_METER = 75,
+  GpuCounterDescriptor_MeasureUnit_METER_PER_SECOND = 76,
+  GpuCounterDescriptor_MeasureUnit_METER_PER_SECOND_SQUARED = 77,
+  GpuCounterDescriptor_MeasureUnit_METRIC_TON = 78,
+  GpuCounterDescriptor_MeasureUnit_MICROGRAM = 79,
+  GpuCounterDescriptor_MeasureUnit_MICROMETER = 80,
+  GpuCounterDescriptor_MeasureUnit_MICROSECOND = 81,
+  GpuCounterDescriptor_MeasureUnit_MILE = 82,
+  GpuCounterDescriptor_MeasureUnit_MILE_PER_GALLON = 83,
+  GpuCounterDescriptor_MeasureUnit_MILE_PER_GALLON_IMPERIAL = 84,
+  GpuCounterDescriptor_MeasureUnit_MILE_PER_HOUR = 85,
+  GpuCounterDescriptor_MeasureUnit_MILE_SCANDINAVIAN = 86,
+  GpuCounterDescriptor_MeasureUnit_MILLIAMPERE = 87,
+  GpuCounterDescriptor_MeasureUnit_MILLIBAR = 88,
+  GpuCounterDescriptor_MeasureUnit_MILLIGRAM = 89,
+  GpuCounterDescriptor_MeasureUnit_MILLIGRAM_PER_DECILITER = 90,
+  GpuCounterDescriptor_MeasureUnit_MILLILITER = 91,
+  GpuCounterDescriptor_MeasureUnit_MILLIMETER = 92,
+  GpuCounterDescriptor_MeasureUnit_MILLIMETER_OF_MERCURY = 93,
+  GpuCounterDescriptor_MeasureUnit_MILLIMOLE_PER_LITER = 94,
+  GpuCounterDescriptor_MeasureUnit_MILLISECOND = 95,
+  GpuCounterDescriptor_MeasureUnit_MILLIWATT = 96,
+  GpuCounterDescriptor_MeasureUnit_MINUTE = 97,
+  GpuCounterDescriptor_MeasureUnit_MONTH = 98,
+  GpuCounterDescriptor_MeasureUnit_NANOMETER = 99,
+  GpuCounterDescriptor_MeasureUnit_NANOSECOND = 100,
+  GpuCounterDescriptor_MeasureUnit_NAUTICAL_MILE = 101,
+  GpuCounterDescriptor_MeasureUnit_OHM = 102,
+  GpuCounterDescriptor_MeasureUnit_OUNCE = 103,
+  GpuCounterDescriptor_MeasureUnit_OUNCE_TROY = 104,
+  GpuCounterDescriptor_MeasureUnit_PARSEC = 105,
+  GpuCounterDescriptor_MeasureUnit_PART_PER_MILLION = 106,
+  GpuCounterDescriptor_MeasureUnit_PICOMETER = 107,
+  GpuCounterDescriptor_MeasureUnit_PINT = 108,
+  GpuCounterDescriptor_MeasureUnit_PINT_METRIC = 109,
+  GpuCounterDescriptor_MeasureUnit_POINT = 110,
+  GpuCounterDescriptor_MeasureUnit_POUND = 111,
+  GpuCounterDescriptor_MeasureUnit_POUND_PER_SQUARE_INCH = 112,
+  GpuCounterDescriptor_MeasureUnit_QUART = 113,
+  GpuCounterDescriptor_MeasureUnit_RADIAN = 114,
+  GpuCounterDescriptor_MeasureUnit_REVOLUTION_ANGLE = 115,
+  GpuCounterDescriptor_MeasureUnit_SECOND = 116,
+  GpuCounterDescriptor_MeasureUnit_SQUARE_CENTIMETER = 117,
+  GpuCounterDescriptor_MeasureUnit_SQUARE_FOOT = 118,
+  GpuCounterDescriptor_MeasureUnit_SQUARE_INCH = 119,
+  GpuCounterDescriptor_MeasureUnit_SQUARE_KILOMETER = 120,
+  GpuCounterDescriptor_MeasureUnit_SQUARE_METER = 121,
+  GpuCounterDescriptor_MeasureUnit_SQUARE_MILE = 122,
+  GpuCounterDescriptor_MeasureUnit_SQUARE_YARD = 123,
+  GpuCounterDescriptor_MeasureUnit_STONE = 124,
+  GpuCounterDescriptor_MeasureUnit_TABLESPOON = 125,
+  GpuCounterDescriptor_MeasureUnit_TEASPOON = 126,
+  GpuCounterDescriptor_MeasureUnit_TERABIT = 127,
+  GpuCounterDescriptor_MeasureUnit_TERABYTE = 128,
+  GpuCounterDescriptor_MeasureUnit_TON = 129,
+  GpuCounterDescriptor_MeasureUnit_VOLT = 130,
+  GpuCounterDescriptor_MeasureUnit_WATT = 131,
+  GpuCounterDescriptor_MeasureUnit_WEEK = 132,
+  GpuCounterDescriptor_MeasureUnit_YARD = 133,
+  GpuCounterDescriptor_MeasureUnit_YEAR = 134,
+};
+
+const GpuCounterDescriptor_MeasureUnit GpuCounterDescriptor_MeasureUnit_MIN = GpuCounterDescriptor_MeasureUnit_ACRE;
+const GpuCounterDescriptor_MeasureUnit GpuCounterDescriptor_MeasureUnit_MAX = GpuCounterDescriptor_MeasureUnit_YEAR;
 
 class GpuCounterDescriptor_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/1, /*HAS_REPEATED_FIELDS=*/true> {
  public:
@@ -4935,13 +6484,149 @@ class GpuCounterDescriptor : public ::protozero::Message {
     kSpecsFieldNumber = 1,
   };
   using GpuCounterSpec = ::perfetto::protos::pbzero::GpuCounterDescriptor_GpuCounterSpec;
+  using MeasureUnit = ::perfetto::protos::pbzero::GpuCounterDescriptor_MeasureUnit;
+  static const MeasureUnit ACRE = GpuCounterDescriptor_MeasureUnit_ACRE;
+  static const MeasureUnit ACRE_FOOT = GpuCounterDescriptor_MeasureUnit_ACRE_FOOT;
+  static const MeasureUnit AMPERE = GpuCounterDescriptor_MeasureUnit_AMPERE;
+  static const MeasureUnit ARC_MINUTE = GpuCounterDescriptor_MeasureUnit_ARC_MINUTE;
+  static const MeasureUnit ARC_SECOND = GpuCounterDescriptor_MeasureUnit_ARC_SECOND;
+  static const MeasureUnit ASTRONOMICAL_UNIT = GpuCounterDescriptor_MeasureUnit_ASTRONOMICAL_UNIT;
+  static const MeasureUnit BIT = GpuCounterDescriptor_MeasureUnit_BIT;
+  static const MeasureUnit BUSHEL = GpuCounterDescriptor_MeasureUnit_BUSHEL;
+  static const MeasureUnit BYTE = GpuCounterDescriptor_MeasureUnit_BYTE;
+  static const MeasureUnit CALORIE = GpuCounterDescriptor_MeasureUnit_CALORIE;
+  static const MeasureUnit CARAT = GpuCounterDescriptor_MeasureUnit_CARAT;
+  static const MeasureUnit CELSIUS = GpuCounterDescriptor_MeasureUnit_CELSIUS;
+  static const MeasureUnit CENTILITER = GpuCounterDescriptor_MeasureUnit_CENTILITER;
+  static const MeasureUnit CENTIMETER = GpuCounterDescriptor_MeasureUnit_CENTIMETER;
+  static const MeasureUnit CENTURY = GpuCounterDescriptor_MeasureUnit_CENTURY;
+  static const MeasureUnit CUBIC_CENTIMETER = GpuCounterDescriptor_MeasureUnit_CUBIC_CENTIMETER;
+  static const MeasureUnit CUBIC_FOOT = GpuCounterDescriptor_MeasureUnit_CUBIC_FOOT;
+  static const MeasureUnit CUBIC_INCH = GpuCounterDescriptor_MeasureUnit_CUBIC_INCH;
+  static const MeasureUnit CUBIC_KILOMETER = GpuCounterDescriptor_MeasureUnit_CUBIC_KILOMETER;
+  static const MeasureUnit CUBIC_METER = GpuCounterDescriptor_MeasureUnit_CUBIC_METER;
+  static const MeasureUnit CUBIC_MILE = GpuCounterDescriptor_MeasureUnit_CUBIC_MILE;
+  static const MeasureUnit CUBIC_YARD = GpuCounterDescriptor_MeasureUnit_CUBIC_YARD;
+  static const MeasureUnit CUP = GpuCounterDescriptor_MeasureUnit_CUP;
+  static const MeasureUnit CUP_METRIC = GpuCounterDescriptor_MeasureUnit_CUP_METRIC;
+  static const MeasureUnit DAY = GpuCounterDescriptor_MeasureUnit_DAY;
+  static const MeasureUnit DECILITER = GpuCounterDescriptor_MeasureUnit_DECILITER;
+  static const MeasureUnit DECIMETER = GpuCounterDescriptor_MeasureUnit_DECIMETER;
+  static const MeasureUnit DEGREE = GpuCounterDescriptor_MeasureUnit_DEGREE;
+  static const MeasureUnit FAHRENHEIT = GpuCounterDescriptor_MeasureUnit_FAHRENHEIT;
+  static const MeasureUnit FATHOM = GpuCounterDescriptor_MeasureUnit_FATHOM;
+  static const MeasureUnit FLUID_OUNCE = GpuCounterDescriptor_MeasureUnit_FLUID_OUNCE;
+  static const MeasureUnit FOODCALORIE = GpuCounterDescriptor_MeasureUnit_FOODCALORIE;
+  static const MeasureUnit FOOT = GpuCounterDescriptor_MeasureUnit_FOOT;
+  static const MeasureUnit FURLONG = GpuCounterDescriptor_MeasureUnit_FURLONG;
+  static const MeasureUnit GALLON = GpuCounterDescriptor_MeasureUnit_GALLON;
+  static const MeasureUnit GALLON_IMPERIAL = GpuCounterDescriptor_MeasureUnit_GALLON_IMPERIAL;
+  static const MeasureUnit GENERIC_TEMPERATURE = GpuCounterDescriptor_MeasureUnit_GENERIC_TEMPERATURE;
+  static const MeasureUnit GIGABIT = GpuCounterDescriptor_MeasureUnit_GIGABIT;
+  static const MeasureUnit GIGABYTE = GpuCounterDescriptor_MeasureUnit_GIGABYTE;
+  static const MeasureUnit GIGAHERTZ = GpuCounterDescriptor_MeasureUnit_GIGAHERTZ;
+  static const MeasureUnit GIGAWATT = GpuCounterDescriptor_MeasureUnit_GIGAWATT;
+  static const MeasureUnit GRAM = GpuCounterDescriptor_MeasureUnit_GRAM;
+  static const MeasureUnit G_FORCE = GpuCounterDescriptor_MeasureUnit_G_FORCE;
+  static const MeasureUnit HECTARE = GpuCounterDescriptor_MeasureUnit_HECTARE;
+  static const MeasureUnit HECTOLITER = GpuCounterDescriptor_MeasureUnit_HECTOLITER;
+  static const MeasureUnit HECTOPASCAL = GpuCounterDescriptor_MeasureUnit_HECTOPASCAL;
+  static const MeasureUnit HERTZ = GpuCounterDescriptor_MeasureUnit_HERTZ;
+  static const MeasureUnit HORSEPOWER = GpuCounterDescriptor_MeasureUnit_HORSEPOWER;
+  static const MeasureUnit HOUR = GpuCounterDescriptor_MeasureUnit_HOUR;
+  static const MeasureUnit INCH = GpuCounterDescriptor_MeasureUnit_INCH;
+  static const MeasureUnit INCH_HG = GpuCounterDescriptor_MeasureUnit_INCH_HG;
+  static const MeasureUnit JOULE = GpuCounterDescriptor_MeasureUnit_JOULE;
+  static const MeasureUnit KARAT = GpuCounterDescriptor_MeasureUnit_KARAT;
+  static const MeasureUnit KELVIN = GpuCounterDescriptor_MeasureUnit_KELVIN;
+  static const MeasureUnit KILOBIT = GpuCounterDescriptor_MeasureUnit_KILOBIT;
+  static const MeasureUnit KILOBYTE = GpuCounterDescriptor_MeasureUnit_KILOBYTE;
+  static const MeasureUnit KILOCALORIE = GpuCounterDescriptor_MeasureUnit_KILOCALORIE;
+  static const MeasureUnit KILOGRAM = GpuCounterDescriptor_MeasureUnit_KILOGRAM;
+  static const MeasureUnit KILOHERTZ = GpuCounterDescriptor_MeasureUnit_KILOHERTZ;
+  static const MeasureUnit KILOJOULE = GpuCounterDescriptor_MeasureUnit_KILOJOULE;
+  static const MeasureUnit KILOMETER = GpuCounterDescriptor_MeasureUnit_KILOMETER;
+  static const MeasureUnit KILOMETER_PER_HOUR = GpuCounterDescriptor_MeasureUnit_KILOMETER_PER_HOUR;
+  static const MeasureUnit KILOWATT = GpuCounterDescriptor_MeasureUnit_KILOWATT;
+  static const MeasureUnit KILOWATT_HOUR = GpuCounterDescriptor_MeasureUnit_KILOWATT_HOUR;
+  static const MeasureUnit KNOT = GpuCounterDescriptor_MeasureUnit_KNOT;
+  static const MeasureUnit LIGHT_YEAR = GpuCounterDescriptor_MeasureUnit_LIGHT_YEAR;
+  static const MeasureUnit LITER = GpuCounterDescriptor_MeasureUnit_LITER;
+  static const MeasureUnit LITER_PER_100KILOMETERS = GpuCounterDescriptor_MeasureUnit_LITER_PER_100KILOMETERS;
+  static const MeasureUnit LITER_PER_KILOMETER = GpuCounterDescriptor_MeasureUnit_LITER_PER_KILOMETER;
+  static const MeasureUnit LUX = GpuCounterDescriptor_MeasureUnit_LUX;
+  static const MeasureUnit MEGABIT = GpuCounterDescriptor_MeasureUnit_MEGABIT;
+  static const MeasureUnit MEGABYTE = GpuCounterDescriptor_MeasureUnit_MEGABYTE;
+  static const MeasureUnit MEGAHERTZ = GpuCounterDescriptor_MeasureUnit_MEGAHERTZ;
+  static const MeasureUnit MEGALITER = GpuCounterDescriptor_MeasureUnit_MEGALITER;
+  static const MeasureUnit MEGAWATT = GpuCounterDescriptor_MeasureUnit_MEGAWATT;
+  static const MeasureUnit METER = GpuCounterDescriptor_MeasureUnit_METER;
+  static const MeasureUnit METER_PER_SECOND = GpuCounterDescriptor_MeasureUnit_METER_PER_SECOND;
+  static const MeasureUnit METER_PER_SECOND_SQUARED = GpuCounterDescriptor_MeasureUnit_METER_PER_SECOND_SQUARED;
+  static const MeasureUnit METRIC_TON = GpuCounterDescriptor_MeasureUnit_METRIC_TON;
+  static const MeasureUnit MICROGRAM = GpuCounterDescriptor_MeasureUnit_MICROGRAM;
+  static const MeasureUnit MICROMETER = GpuCounterDescriptor_MeasureUnit_MICROMETER;
+  static const MeasureUnit MICROSECOND = GpuCounterDescriptor_MeasureUnit_MICROSECOND;
+  static const MeasureUnit MILE = GpuCounterDescriptor_MeasureUnit_MILE;
+  static const MeasureUnit MILE_PER_GALLON = GpuCounterDescriptor_MeasureUnit_MILE_PER_GALLON;
+  static const MeasureUnit MILE_PER_GALLON_IMPERIAL = GpuCounterDescriptor_MeasureUnit_MILE_PER_GALLON_IMPERIAL;
+  static const MeasureUnit MILE_PER_HOUR = GpuCounterDescriptor_MeasureUnit_MILE_PER_HOUR;
+  static const MeasureUnit MILE_SCANDINAVIAN = GpuCounterDescriptor_MeasureUnit_MILE_SCANDINAVIAN;
+  static const MeasureUnit MILLIAMPERE = GpuCounterDescriptor_MeasureUnit_MILLIAMPERE;
+  static const MeasureUnit MILLIBAR = GpuCounterDescriptor_MeasureUnit_MILLIBAR;
+  static const MeasureUnit MILLIGRAM = GpuCounterDescriptor_MeasureUnit_MILLIGRAM;
+  static const MeasureUnit MILLIGRAM_PER_DECILITER = GpuCounterDescriptor_MeasureUnit_MILLIGRAM_PER_DECILITER;
+  static const MeasureUnit MILLILITER = GpuCounterDescriptor_MeasureUnit_MILLILITER;
+  static const MeasureUnit MILLIMETER = GpuCounterDescriptor_MeasureUnit_MILLIMETER;
+  static const MeasureUnit MILLIMETER_OF_MERCURY = GpuCounterDescriptor_MeasureUnit_MILLIMETER_OF_MERCURY;
+  static const MeasureUnit MILLIMOLE_PER_LITER = GpuCounterDescriptor_MeasureUnit_MILLIMOLE_PER_LITER;
+  static const MeasureUnit MILLISECOND = GpuCounterDescriptor_MeasureUnit_MILLISECOND;
+  static const MeasureUnit MILLIWATT = GpuCounterDescriptor_MeasureUnit_MILLIWATT;
+  static const MeasureUnit MINUTE = GpuCounterDescriptor_MeasureUnit_MINUTE;
+  static const MeasureUnit MONTH = GpuCounterDescriptor_MeasureUnit_MONTH;
+  static const MeasureUnit NANOMETER = GpuCounterDescriptor_MeasureUnit_NANOMETER;
+  static const MeasureUnit NANOSECOND = GpuCounterDescriptor_MeasureUnit_NANOSECOND;
+  static const MeasureUnit NAUTICAL_MILE = GpuCounterDescriptor_MeasureUnit_NAUTICAL_MILE;
+  static const MeasureUnit OHM = GpuCounterDescriptor_MeasureUnit_OHM;
+  static const MeasureUnit OUNCE = GpuCounterDescriptor_MeasureUnit_OUNCE;
+  static const MeasureUnit OUNCE_TROY = GpuCounterDescriptor_MeasureUnit_OUNCE_TROY;
+  static const MeasureUnit PARSEC = GpuCounterDescriptor_MeasureUnit_PARSEC;
+  static const MeasureUnit PART_PER_MILLION = GpuCounterDescriptor_MeasureUnit_PART_PER_MILLION;
+  static const MeasureUnit PICOMETER = GpuCounterDescriptor_MeasureUnit_PICOMETER;
+  static const MeasureUnit PINT = GpuCounterDescriptor_MeasureUnit_PINT;
+  static const MeasureUnit PINT_METRIC = GpuCounterDescriptor_MeasureUnit_PINT_METRIC;
+  static const MeasureUnit POINT = GpuCounterDescriptor_MeasureUnit_POINT;
+  static const MeasureUnit POUND = GpuCounterDescriptor_MeasureUnit_POUND;
+  static const MeasureUnit POUND_PER_SQUARE_INCH = GpuCounterDescriptor_MeasureUnit_POUND_PER_SQUARE_INCH;
+  static const MeasureUnit QUART = GpuCounterDescriptor_MeasureUnit_QUART;
+  static const MeasureUnit RADIAN = GpuCounterDescriptor_MeasureUnit_RADIAN;
+  static const MeasureUnit REVOLUTION_ANGLE = GpuCounterDescriptor_MeasureUnit_REVOLUTION_ANGLE;
+  static const MeasureUnit SECOND = GpuCounterDescriptor_MeasureUnit_SECOND;
+  static const MeasureUnit SQUARE_CENTIMETER = GpuCounterDescriptor_MeasureUnit_SQUARE_CENTIMETER;
+  static const MeasureUnit SQUARE_FOOT = GpuCounterDescriptor_MeasureUnit_SQUARE_FOOT;
+  static const MeasureUnit SQUARE_INCH = GpuCounterDescriptor_MeasureUnit_SQUARE_INCH;
+  static const MeasureUnit SQUARE_KILOMETER = GpuCounterDescriptor_MeasureUnit_SQUARE_KILOMETER;
+  static const MeasureUnit SQUARE_METER = GpuCounterDescriptor_MeasureUnit_SQUARE_METER;
+  static const MeasureUnit SQUARE_MILE = GpuCounterDescriptor_MeasureUnit_SQUARE_MILE;
+  static const MeasureUnit SQUARE_YARD = GpuCounterDescriptor_MeasureUnit_SQUARE_YARD;
+  static const MeasureUnit STONE = GpuCounterDescriptor_MeasureUnit_STONE;
+  static const MeasureUnit TABLESPOON = GpuCounterDescriptor_MeasureUnit_TABLESPOON;
+  static const MeasureUnit TEASPOON = GpuCounterDescriptor_MeasureUnit_TEASPOON;
+  static const MeasureUnit TERABIT = GpuCounterDescriptor_MeasureUnit_TERABIT;
+  static const MeasureUnit TERABYTE = GpuCounterDescriptor_MeasureUnit_TERABYTE;
+  static const MeasureUnit TON = GpuCounterDescriptor_MeasureUnit_TON;
+  static const MeasureUnit VOLT = GpuCounterDescriptor_MeasureUnit_VOLT;
+  static const MeasureUnit WATT = GpuCounterDescriptor_MeasureUnit_WATT;
+  static const MeasureUnit WEEK = GpuCounterDescriptor_MeasureUnit_WEEK;
+  static const MeasureUnit YARD = GpuCounterDescriptor_MeasureUnit_YARD;
+  static const MeasureUnit YEAR = GpuCounterDescriptor_MeasureUnit_YEAR;
   template <typename T = GpuCounterDescriptor_GpuCounterSpec> T* add_specs() {
     return BeginNestedMessage<T>(1);
   }
 
 };
 
-class GpuCounterDescriptor_GpuCounterSpec_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/3, /*HAS_REPEATED_FIELDS=*/false> {
+class GpuCounterDescriptor_GpuCounterSpec_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/6, /*HAS_REPEATED_FIELDS=*/false> {
  public:
   GpuCounterDescriptor_GpuCounterSpec_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
   explicit GpuCounterDescriptor_GpuCounterSpec_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
@@ -4952,6 +6637,12 @@ class GpuCounterDescriptor_GpuCounterSpec_Decoder : public ::protozero::TypedPro
   ::protozero::ConstChars name() const { return at<2>().as_string(); }
   bool has_description() const { return at<3>().valid(); }
   ::protozero::ConstChars description() const { return at<3>().as_string(); }
+  bool has_unit() const { return at<4>().valid(); }
+  int32_t unit() const { return at<4>().as_int32(); }
+  bool has_int_peak_value() const { return at<5>().valid(); }
+  int64_t int_peak_value() const { return at<5>().as_int64(); }
+  bool has_double_peak_value() const { return at<6>().valid(); }
+  double double_peak_value() const { return at<6>().as_double(); }
 };
 
 class GpuCounterDescriptor_GpuCounterSpec : public ::protozero::Message {
@@ -4961,6 +6652,9 @@ class GpuCounterDescriptor_GpuCounterSpec : public ::protozero::Message {
     kCounterIdFieldNumber = 1,
     kNameFieldNumber = 2,
     kDescriptionFieldNumber = 3,
+    kUnitFieldNumber = 4,
+    kIntPeakValueFieldNumber = 5,
+    kDoublePeakValueFieldNumber = 6,
   };
   void set_counter_id(uint32_t value) {
     AppendVarInt(1, value);
@@ -4980,6 +6674,15 @@ class GpuCounterDescriptor_GpuCounterSpec : public ::protozero::Message {
   // Expects |value| to be at least |size| long.
   void set_description(const char* value, size_t size) {
     AppendBytes(3, value, size);
+  }
+  void set_unit(::perfetto::protos::pbzero::GpuCounterDescriptor_MeasureUnit value) {
+    AppendVarInt(4, value);
+  }
+  void set_int_peak_value(int64_t value) {
+    AppendVarInt(5, value);
+  }
+  void set_double_peak_value(double value) {
+    AppendFixed(6, value);
   }
 };
 
@@ -6338,7 +8041,7 @@ namespace pbzero {
 
 class HeapprofdConfig_ContinuousDumpConfig;
 
-class HeapprofdConfig_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/12, /*HAS_REPEATED_FIELDS=*/true> {
+class HeapprofdConfig_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/13, /*HAS_REPEATED_FIELDS=*/true> {
  public:
   HeapprofdConfig_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
   explicit HeapprofdConfig_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
@@ -6365,6 +8068,8 @@ class HeapprofdConfig_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIEL
   bool no_running() const { return at<11>().as_bool(); }
   bool has_idle_allocations() const { return at<12>().valid(); }
   bool idle_allocations() const { return at<12>().as_bool(); }
+  bool has_dump_at_max() const { return at<13>().valid(); }
+  bool dump_at_max() const { return at<13>().as_bool(); }
 };
 
 class HeapprofdConfig : public ::protozero::Message {
@@ -6382,6 +8087,7 @@ class HeapprofdConfig : public ::protozero::Message {
     kNoStartupFieldNumber = 10,
     kNoRunningFieldNumber = 11,
     kIdleAllocationsFieldNumber = 12,
+    kDumpAtMaxFieldNumber = 13,
   };
   using ContinuousDumpConfig = ::perfetto::protos::pbzero::HeapprofdConfig_ContinuousDumpConfig;
   void set_sampling_interval_bytes(uint64_t value) {
@@ -6427,6 +8133,9 @@ class HeapprofdConfig : public ::protozero::Message {
   }
   void set_idle_allocations(bool value) {
     AppendTinyVarInt(12, value);
+  }
+  void set_dump_at_max(bool value) {
+    AppendTinyVarInt(13, value);
   }
 };
 
@@ -8098,27 +9807,25 @@ class GpuRenderStageEvent_Specifications;
 class GpuRenderStageEvent_Specifications_ContextSpec;
 class GpuRenderStageEvent_Specifications_Description;
 
-class GpuRenderStageEvent_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/8, /*HAS_REPEATED_FIELDS=*/true> {
+class GpuRenderStageEvent_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/7, /*HAS_REPEATED_FIELDS=*/true> {
  public:
   GpuRenderStageEvent_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
   explicit GpuRenderStageEvent_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
   explicit GpuRenderStageEvent_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
   bool has_event_id() const { return at<1>().valid(); }
   uint64_t event_id() const { return at<1>().as_uint64(); }
-  bool has_start_time() const { return at<2>().valid(); }
-  uint64_t start_time() const { return at<2>().as_uint64(); }
-  bool has_duration() const { return at<3>().valid(); }
-  uint64_t duration() const { return at<3>().as_uint64(); }
-  bool has_hw_queue_id() const { return at<4>().valid(); }
-  int32_t hw_queue_id() const { return at<4>().as_int32(); }
-  bool has_stage_id() const { return at<5>().valid(); }
-  int32_t stage_id() const { return at<5>().as_int32(); }
-  bool has_context() const { return at<6>().valid(); }
-  uint64_t context() const { return at<6>().as_uint64(); }
-  bool has_extra_data() const { return at<7>().valid(); }
-  ::protozero::RepeatedFieldIterator extra_data() const { return GetRepeated(7); }
-  bool has_specifications() const { return at<8>().valid(); }
-  ::protozero::ConstBytes specifications() const { return at<8>().as_bytes(); }
+  bool has_duration() const { return at<2>().valid(); }
+  uint64_t duration() const { return at<2>().as_uint64(); }
+  bool has_hw_queue_id() const { return at<3>().valid(); }
+  int32_t hw_queue_id() const { return at<3>().as_int32(); }
+  bool has_stage_id() const { return at<4>().valid(); }
+  int32_t stage_id() const { return at<4>().as_int32(); }
+  bool has_context() const { return at<5>().valid(); }
+  uint64_t context() const { return at<5>().as_uint64(); }
+  bool has_extra_data() const { return at<6>().valid(); }
+  ::protozero::RepeatedFieldIterator extra_data() const { return GetRepeated(6); }
+  bool has_specifications() const { return at<7>().valid(); }
+  ::protozero::ConstBytes specifications() const { return at<7>().as_bytes(); }
 };
 
 class GpuRenderStageEvent : public ::protozero::Message {
@@ -8126,40 +9833,36 @@ class GpuRenderStageEvent : public ::protozero::Message {
   using Decoder = GpuRenderStageEvent_Decoder;
   enum : int32_t {
     kEventIdFieldNumber = 1,
-    kStartTimeFieldNumber = 2,
-    kDurationFieldNumber = 3,
-    kHwQueueIdFieldNumber = 4,
-    kStageIdFieldNumber = 5,
-    kContextFieldNumber = 6,
-    kExtraDataFieldNumber = 7,
-    kSpecificationsFieldNumber = 8,
+    kDurationFieldNumber = 2,
+    kHwQueueIdFieldNumber = 3,
+    kStageIdFieldNumber = 4,
+    kContextFieldNumber = 5,
+    kExtraDataFieldNumber = 6,
+    kSpecificationsFieldNumber = 7,
   };
   using ExtraData = ::perfetto::protos::pbzero::GpuRenderStageEvent_ExtraData;
   using Specifications = ::perfetto::protos::pbzero::GpuRenderStageEvent_Specifications;
   void set_event_id(uint64_t value) {
     AppendVarInt(1, value);
   }
-  void set_start_time(uint64_t value) {
+  void set_duration(uint64_t value) {
     AppendVarInt(2, value);
   }
-  void set_duration(uint64_t value) {
+  void set_hw_queue_id(int32_t value) {
     AppendVarInt(3, value);
   }
-  void set_hw_queue_id(int32_t value) {
+  void set_stage_id(int32_t value) {
     AppendVarInt(4, value);
   }
-  void set_stage_id(int32_t value) {
+  void set_context(uint64_t value) {
     AppendVarInt(5, value);
   }
-  void set_context(uint64_t value) {
-    AppendVarInt(6, value);
-  }
   template <typename T = GpuRenderStageEvent_ExtraData> T* add_extra_data() {
-    return BeginNestedMessage<T>(7);
+    return BeginNestedMessage<T>(6);
   }
 
   template <typename T = GpuRenderStageEvent_Specifications> T* set_specifications() {
-    return BeginNestedMessage<T>(8);
+    return BeginNestedMessage<T>(7);
   }
 
 };
@@ -8201,45 +9904,39 @@ class GpuRenderStageEvent_Specifications : public ::protozero::Message {
 
 };
 
-class GpuRenderStageEvent_Specifications_Description_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/3, /*HAS_REPEATED_FIELDS=*/false> {
+class GpuRenderStageEvent_Specifications_Description_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/2, /*HAS_REPEATED_FIELDS=*/false> {
  public:
   GpuRenderStageEvent_Specifications_Description_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
   explicit GpuRenderStageEvent_Specifications_Description_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
   explicit GpuRenderStageEvent_Specifications_Description_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
-  bool has_id() const { return at<1>().valid(); }
-  int32_t id() const { return at<1>().as_int32(); }
-  bool has_name() const { return at<2>().valid(); }
-  ::protozero::ConstChars name() const { return at<2>().as_string(); }
-  bool has_description() const { return at<3>().valid(); }
-  ::protozero::ConstChars description() const { return at<3>().as_string(); }
+  bool has_name() const { return at<1>().valid(); }
+  ::protozero::ConstChars name() const { return at<1>().as_string(); }
+  bool has_description() const { return at<2>().valid(); }
+  ::protozero::ConstChars description() const { return at<2>().as_string(); }
 };
 
 class GpuRenderStageEvent_Specifications_Description : public ::protozero::Message {
  public:
   using Decoder = GpuRenderStageEvent_Specifications_Description_Decoder;
   enum : int32_t {
-    kIdFieldNumber = 1,
-    kNameFieldNumber = 2,
-    kDescriptionFieldNumber = 3,
+    kNameFieldNumber = 1,
+    kDescriptionFieldNumber = 2,
   };
-  void set_id(int32_t value) {
-    AppendVarInt(1, value);
-  }
   void set_name(const char* value) {
-    AppendString(2, value);
+    AppendString(1, value);
   }
   // Doesn't check for null terminator.
   // Expects |value| to be at least |size| long.
   void set_name(const char* value, size_t size) {
-    AppendBytes(2, value, size);
+    AppendBytes(1, value, size);
   }
   void set_description(const char* value) {
-    AppendString(3, value);
+    AppendString(2, value);
   }
   // Doesn't check for null terminator.
   // Expects |value| to be at least |size| long.
   void set_description(const char* value, size_t size) {
-    AppendBytes(3, value, size);
+    AppendBytes(2, value, size);
   }
 };
 
@@ -8309,1387 +10006,4 @@ class GpuRenderStageEvent_ExtraData : public ::protozero::Message {
 } // Namespace.
 } // Namespace.
 #endif  // Include guard.
-// gen_amalgamated begin header: include/perfetto/protozero/contiguous_memory_range.h
-/*
- * Copyright (C) 2017 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-#ifndef INCLUDE_PERFETTO_PROTOZERO_CONTIGUOUS_MEMORY_RANGE_H_
-#define INCLUDE_PERFETTO_PROTOZERO_CONTIGUOUS_MEMORY_RANGE_H_
-
-#include <assert.h>
-#include <stddef.h>
-#include <stdint.h>
-
-namespace protozero {
-
-// Keep this struct trivially constructible (no ctors, no default initializers).
-struct ContiguousMemoryRange {
-  uint8_t* begin;
-  uint8_t* end;  // STL style: one byte past the end of the buffer.
-
-  inline bool is_valid() const { return begin != nullptr; }
-  inline void reset() { begin = nullptr; }
-  inline size_t size() { return static_cast<size_t>(end - begin); }
-};
-
-}  // namespace protozero
-
-#endif  // INCLUDE_PERFETTO_PROTOZERO_CONTIGUOUS_MEMORY_RANGE_H_
-// gen_amalgamated begin header: include/perfetto/protozero/field.h
-/*
- * Copyright (C) 2019 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-#ifndef INCLUDE_PERFETTO_PROTOZERO_FIELD_H_
-#define INCLUDE_PERFETTO_PROTOZERO_FIELD_H_
-
-#include <stdint.h>
-
-#include <string>
-
-// gen_amalgamated expanded: #include "perfetto/base/logging.h"
-// gen_amalgamated expanded: #include "perfetto/protozero/contiguous_memory_range.h"
-// gen_amalgamated expanded: #include "perfetto/protozero/proto_utils.h"
-
-namespace protozero {
-
-struct ConstBytes {
-  const uint8_t* data;
-  size_t size;
-};
-
-struct ConstChars {
-  // Allow implicit conversion to perfetto's base::StringView without depending
-  // on perfetto/base or viceversa.
-  static constexpr bool kConvertibleToStringView = true;
-  std::string ToStdString() const { return std::string(data, size); }
-
-  const char* data;
-  size_t size;
-};
-
-// A protobuf field decoded by the protozero proto decoders. It exposes
-// convenience accessors with minimal debug checks.
-// This class is used both by the iterator-based ProtoDecoder and by the
-// one-shot TypedProtoDecoder.
-// If the field is not valid the accessors consistently return zero-integers or
-// null strings.
-class Field {
- public:
-  inline bool valid() const { return id_ != 0; }
-  inline uint16_t id() const { return id_; }
-  explicit inline operator bool() const { return valid(); }
-
-  inline proto_utils::ProtoWireType type() const {
-    auto res = static_cast<proto_utils::ProtoWireType>(type_);
-    PERFETTO_DCHECK(res == proto_utils::ProtoWireType::kVarInt ||
-                    res == proto_utils::ProtoWireType::kLengthDelimited ||
-                    res == proto_utils::ProtoWireType::kFixed32 ||
-                    res == proto_utils::ProtoWireType::kFixed64);
-    return res;
-  }
-
-  inline bool as_bool() const {
-    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kVarInt);
-    return static_cast<bool>(int_value_);
-  }
-
-  inline uint32_t as_uint32() const {
-    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kVarInt ||
-                    type() == proto_utils::ProtoWireType::kFixed32);
-    return static_cast<uint32_t>(int_value_);
-  }
-
-  inline int32_t as_int32() const {
-    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kVarInt ||
-                    type() == proto_utils::ProtoWireType::kFixed32);
-    return static_cast<int32_t>(int_value_);
-  }
-
-  inline uint64_t as_uint64() const {
-    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kVarInt ||
-                    type() == proto_utils::ProtoWireType::kFixed32 ||
-                    type() == proto_utils::ProtoWireType::kFixed64);
-    return int_value_;
-  }
-
-  inline int64_t as_int64() const {
-    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kVarInt ||
-                    type() == proto_utils::ProtoWireType::kFixed32 ||
-                    type() == proto_utils::ProtoWireType::kFixed64);
-    return static_cast<int64_t>(int_value_);
-  }
-
-  inline float as_float() const {
-    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kFixed32);
-    float res;
-    uint32_t value32 = static_cast<uint32_t>(int_value_);
-    memcpy(&res, &value32, sizeof(res));
-    return res;
-  }
-
-  inline double as_double() const {
-    PERFETTO_DCHECK(!valid() || type() == proto_utils::ProtoWireType::kFixed64);
-    double res;
-    memcpy(&res, &int_value_, sizeof(res));
-    return res;
-  }
-
-  inline ConstChars as_string() const {
-    PERFETTO_DCHECK(!valid() ||
-                    type() == proto_utils::ProtoWireType::kLengthDelimited);
-    return ConstChars{reinterpret_cast<const char*>(data()), size_};
-  }
-
-  inline std::string as_std_string() const { return as_string().ToStdString(); }
-
-  inline ConstBytes as_bytes() const {
-    PERFETTO_DCHECK(!valid() ||
-                    type() == proto_utils::ProtoWireType::kLengthDelimited);
-    return ConstBytes{data(), size_};
-  }
-
-  inline const uint8_t* data() const {
-    PERFETTO_DCHECK(!valid() ||
-                    type() == proto_utils::ProtoWireType::kLengthDelimited);
-    return reinterpret_cast<const uint8_t*>(int_value_);
-  }
-
-  inline size_t size() const {
-    PERFETTO_DCHECK(!valid() ||
-                    type() == proto_utils::ProtoWireType::kLengthDelimited);
-    return size_;
-  }
-
-  inline uint64_t raw_int_value() const { return int_value_; }
-
-  inline void initialize(uint16_t id,
-                         uint8_t type,
-                         uint64_t int_value,
-                         uint32_t size) {
-    id_ = id;
-    type_ = type;
-    int_value_ = int_value;
-    size_ = size;
-  }
-
- private:
-  // Fields are deliberately not initialized to keep the class trivially
-  // constructible. It makes a large perf difference for ProtoDecoder.
-
-  uint64_t int_value_;  // In kLengthDelimited this contains the data() addr.
-  uint32_t size_;       // Only valid when when type == kLengthDelimited.
-  uint16_t id_;         // Proto field ordinal.
-  uint8_t type_;        // proto_utils::ProtoWireType.
-};
-
-// The Field struct is used in a lot of perf-sensitive contexts.
-static_assert(sizeof(Field) == 16, "Field struct too big");
-
-}  // namespace protozero
-
-#endif  // INCLUDE_PERFETTO_PROTOZERO_FIELD_H_
-// gen_amalgamated begin header: include/perfetto/protozero/message.h
-/*
- * Copyright (C) 2017 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-#ifndef INCLUDE_PERFETTO_PROTOZERO_MESSAGE_H_
-#define INCLUDE_PERFETTO_PROTOZERO_MESSAGE_H_
-
-#include <assert.h>
-#include <stdint.h>
-#include <string.h>
-
-#include <type_traits>
-
-// gen_amalgamated expanded: #include "perfetto/base/export.h"
-// gen_amalgamated expanded: #include "perfetto/base/logging.h"
-// gen_amalgamated expanded: #include "perfetto/protozero/contiguous_memory_range.h"
-// gen_amalgamated expanded: #include "perfetto/protozero/proto_utils.h"
-// gen_amalgamated expanded: #include "perfetto/protozero/scattered_stream_writer.h"
-
-namespace perfetto {
-namespace shm_fuzz {
-class FakeProducer;
-}  // namespace shm_fuzz
-}  // namespace perfetto
-
-namespace protozero {
-
-class MessageHandleBase;
-
-// Base class extended by the proto C++ stubs generated by the ProtoZero
-// compiler. This class provides the minimal runtime required to support
-// append-only operations and is designed for performance. None of the methods
-// require any dynamic memory allocation.
-class PERFETTO_EXPORT Message {
- public:
-  friend class MessageHandleBase;
-  // Grant end_to_end_shared_memory_fuzzer access in order to write raw
-  // bytes into the buffer.
-  friend class ::perfetto::shm_fuzz::FakeProducer;
-  // Adjust the |nested_messages_arena_| size when changing this, or the
-  // static_assert in the .cc file will bark.
-  static constexpr uint32_t kMaxNestingDepth = 10;
-
-  // Ctor and Dtor of Message are never called, with the exeception
-  // of root (non-nested) messages. Nested messages are allocated via placement
-  // new in the |nested_messages_arena_| and implictly destroyed when the arena
-  // of the root message goes away. This is fine as long as all the fields are
-  // PODs, which is checked by the static_assert in the ctor (see the Reset()
-  // method in the .cc file).
-  Message() = default;
-
-  // Clears up the state, allowing the message to be reused as a fresh one.
-  void Reset(ScatteredStreamWriter*);
-
-  // Commits all the changes to the buffer (backfills the size field of this and
-  // all nested messages) and seals the message. Returns the size of the message
-  // (and all nested sub-messages), without taking into account any chunking.
-  // Finalize is idempotent and can be called several times w/o side effects.
-  uint32_t Finalize();
-
-  // Optional. If is_valid() == true, the corresponding memory region (its
-  // length == proto_utils::kMessageLengthFieldSize) is backfilled with the size
-  // of this message (minus |size_already_written| below). This is the mechanism
-  // used by messages to backfill their corresponding size field in the parent
-  // message.
-  uint8_t* size_field() const { return size_field_; }
-  void set_size_field(uint8_t* size_field) { size_field_ = size_field; }
-
-  // This is to deal with case of backfilling the size of a root (non-nested)
-  // message which is split into multiple chunks. Upon finalization only the
-  // partial size that lies in the last chunk has to be backfilled.
-  void inc_size_already_written(uint32_t sz) { size_already_written_ += sz; }
-
-  Message* nested_message() { return nested_message_; }
-
-  bool is_finalized() const { return finalized_; }
-
-#if PERFETTO_DCHECK_IS_ON()
-  void set_handle(MessageHandleBase* handle) { handle_ = handle; }
-#endif
-
-  // Proto types: uint64, uint32, int64, int32, bool, enum.
-  template <typename T>
-  void AppendVarInt(uint32_t field_id, T value) {
-    if (nested_message_)
-      EndNestedMessage();
-
-    uint8_t buffer[proto_utils::kMaxSimpleFieldEncodedSize];
-    uint8_t* pos = buffer;
-
-    pos = proto_utils::WriteVarInt(proto_utils::MakeTagVarInt(field_id), pos);
-    // WriteVarInt encodes signed values in two's complement form.
-    pos = proto_utils::WriteVarInt(value, pos);
-    WriteToStream(buffer, pos);
-  }
-
-  // Proto types: sint64, sint32.
-  template <typename T>
-  void AppendSignedVarInt(uint32_t field_id, T value) {
-    AppendVarInt(field_id, proto_utils::ZigZagEncode(value));
-  }
-
-  // Proto types: bool, enum (small).
-  // Faster version of AppendVarInt for tiny numbers.
-  void AppendTinyVarInt(uint32_t field_id, int32_t value) {
-    PERFETTO_DCHECK(0 <= value && value < 0x80);
-    if (nested_message_)
-      EndNestedMessage();
-
-    uint8_t buffer[proto_utils::kMaxSimpleFieldEncodedSize];
-    uint8_t* pos = buffer;
-    // MakeTagVarInt gets super optimized here for constexpr.
-    pos = proto_utils::WriteVarInt(proto_utils::MakeTagVarInt(field_id), pos);
-    *pos++ = static_cast<uint8_t>(value);
-    WriteToStream(buffer, pos);
-  }
-
-  // Proto types: fixed64, sfixed64, fixed32, sfixed32, double, float.
-  template <typename T>
-  void AppendFixed(uint32_t field_id, T value) {
-    if (nested_message_)
-      EndNestedMessage();
-
-    uint8_t buffer[proto_utils::kMaxSimpleFieldEncodedSize];
-    uint8_t* pos = buffer;
-
-    pos = proto_utils::WriteVarInt(proto_utils::MakeTagFixed<T>(field_id), pos);
-    memcpy(pos, &value, sizeof(T));
-    pos += sizeof(T);
-    // TODO: Optimize memcpy performance, see http://crbug.com/624311 .
-    WriteToStream(buffer, pos);
-  }
-
-  void AppendString(uint32_t field_id, const char* str);
-  void AppendBytes(uint32_t field_id, const void* value, size_t size);
-
-  // Append raw bytes for a field, using the supplied |ranges| to
-  // copy from |num_ranges| individual buffers.
-  size_t AppendScatteredBytes(uint32_t field_id,
-                              ContiguousMemoryRange* ranges,
-                              size_t num_ranges);
-
-  // Begins a nested message, using the static storage provided by the parent
-  // class (see comment in |nested_messages_arena_|). The nested message ends
-  // either when Finalize() is called or when any other Append* method is called
-  // in the parent class.
-  // The template argument T is supposed to be a stub class auto generated from
-  // a .proto, hence a subclass of Message.
-  template <class T>
-  T* BeginNestedMessage(uint32_t field_id) {
-    // This is to prevent subclasses (which should be autogenerated, though), to
-    // introduce extra state fields (which wouldn't be initialized by Reset()).
-    static_assert(std::is_base_of<Message, T>::value,
-                  "T must be a subclass of Message");
-    static_assert(sizeof(T) == sizeof(Message),
-                  "Message subclasses cannot introduce extra state.");
-    T* message = reinterpret_cast<T*>(nested_messages_arena_);
-    BeginNestedMessageInternal(field_id, message);
-    return message;
-  }
-
- private:
-  Message(const Message&) = delete;
-  Message& operator=(const Message&) = delete;
-
-  void BeginNestedMessageInternal(uint32_t field_id, Message*);
-
-  // Called by Finalize and Append* methods.
-  void EndNestedMessage();
-
-  void WriteToStream(const uint8_t* src_begin, const uint8_t* src_end) {
-    PERFETTO_DCHECK(!finalized_);
-    PERFETTO_DCHECK(src_begin <= src_end);
-    const uint32_t size = static_cast<uint32_t>(src_end - src_begin);
-    stream_writer_->WriteBytes(src_begin, size);
-    size_ += size;
-  }
-
-  // Only POD fields are allowed. This class's dtor is never called.
-  // See the comment on the static_assert in the corresponding .cc file.
-
-  // The stream writer interface used for the serialization.
-  ScatteredStreamWriter* stream_writer_;
-
-  uint8_t* size_field_;
-
-  // Keeps track of the size of the current message.
-  uint32_t size_;
-
-  // See comment for inc_size_already_written().
-  uint32_t size_already_written_;
-
-  // When true, no more changes to the message are allowed. This is to DCHECK
-  // attempts of writing to a message which has been Finalize()-d.
-  bool finalized_;
-
-  // Used to detect attemps to create messages with a nesting level >
-  // kMaxNestingDepth. |nesting_depth_| == 0 for root (non-nested) messages.
-  uint8_t nesting_depth_;
-
-#if PERFETTO_DCHECK_IS_ON()
-  // Current generation of message. Incremented on Reset.
-  // Used to detect stale handles.
-  uint32_t generation_;
-
-  MessageHandleBase* handle_;
-#endif
-
-  // Pointer to the last child message created through BeginNestedMessage(), if
-  // any, nullptr otherwise. There is no need to keep track of more than one
-  // message per nesting level as the proto-zero API contract mandates that
-  // nested fields can be filled only in a stacked fashion. In other words,
-  // nested messages are finalized and sealed when any other field is set in the
-  // parent message (or the parent message itself is finalized) and cannot be
-  // accessed anymore afterwards.
-  // TODO(primiano): optimization: I think that nested_message_, when non-null.
-  // will always be @ (this) + offsetof(nested_messages_arena_).
-  Message* nested_message_;
-
-  // The root message owns the storage for all its nested messages, up to a max
-  // of kMaxNestingDepth levels (see the .cc file). Note that the boundaries of
-  // the arena are meaningful only for the root message.
-  // Unfortunately we cannot put the sizeof() math here because we cannot sizeof
-  // the current class in a header. However the .cc file has a static_assert
-  // that guarantees that (see the Reset() method in the .cc file).
-  alignas(sizeof(void*)) uint8_t nested_messages_arena_[512];
-
-  // DO NOT add any fields below |nested_messages_arena_|. The memory layout of
-  // nested messages would overflow the storage allocated by the root message.
-};
-
-}  // namespace protozero
-
-#endif  // INCLUDE_PERFETTO_PROTOZERO_MESSAGE_H_
-// gen_amalgamated begin header: include/perfetto/protozero/message_handle.h
-/*
- * Copyright (C) 2017 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-#ifndef INCLUDE_PERFETTO_PROTOZERO_MESSAGE_HANDLE_H_
-#define INCLUDE_PERFETTO_PROTOZERO_MESSAGE_HANDLE_H_
-
-#include <functional>
-
-// gen_amalgamated expanded: #include "perfetto/base/export.h"
-// gen_amalgamated expanded: #include "perfetto/protozero/message.h"
-
-namespace protozero {
-
-class Message;
-
-// MessageHandle allows to decouple the lifetime of a proto message
-// from the underlying storage. It gives the following guarantees:
-// - The underlying message is finalized (if still alive) if the handle goes
-//   out of scope.
-// - In Debug / DCHECK_ALWAYS_ON builds, the handle becomes null once the
-//   message is finalized. This is to enforce the append-only API. For instance
-//   when adding two repeated messages, the addition of the 2nd one forces
-//   the finalization of the first.
-// Think about this as a WeakPtr<Message> which calls
-// Message::Finalize() when going out of scope.
-
-class PERFETTO_EXPORT MessageHandleBase {
- public:
-  class FinalizationListener {
-   public:
-    virtual ~FinalizationListener();
-    virtual void OnMessageFinalized(Message* message) = 0;
-  };
-
-  ~MessageHandleBase();
-
-  // Move-only type.
-  MessageHandleBase(MessageHandleBase&&) noexcept;
-  MessageHandleBase& operator=(MessageHandleBase&&);
-  explicit operator bool() const {
-#if PERFETTO_DCHECK_IS_ON()
-    PERFETTO_DCHECK(!message_ || generation_ == message_->generation_);
-#endif
-    return !!message_;
-  }
-
-  void set_finalization_listener(FinalizationListener* listener) {
-    listener_ = listener;
-  }
-
- protected:
-  explicit MessageHandleBase(Message* = nullptr);
-  Message* operator->() const {
-#if PERFETTO_DCHECK_IS_ON()
-    PERFETTO_DCHECK(!message_ || generation_ == message_->generation_);
-#endif
-    return message_;
-  }
-  Message& operator*() const { return *(operator->()); }
-
- private:
-  friend class Message;
-  MessageHandleBase(const MessageHandleBase&) = delete;
-  MessageHandleBase& operator=(const MessageHandleBase&) = delete;
-
-  void reset_message() {
-    // This is called by Message::Finalize().
-    PERFETTO_DCHECK(message_->is_finalized());
-    message_ = nullptr;
-    listener_ = nullptr;
-  }
-
-  void Move(MessageHandleBase&&);
-
-  void FinalizeMessage() {
-    // |message_| and |listener_| may be cleared by reset_message() during
-    // Message::Finalize().
-    auto* listener = listener_;
-    auto* message = message_;
-    message->Finalize();
-    if (listener)
-      listener->OnMessageFinalized(message);
-  }
-
-  Message* message_;
-  FinalizationListener* listener_ = nullptr;
-#if PERFETTO_DCHECK_IS_ON()
-  uint32_t generation_;
-#endif
-};
-
-template <typename T>
-class MessageHandle : public MessageHandleBase {
- public:
-  MessageHandle() : MessageHandle(nullptr) {}
-  explicit MessageHandle(T* message) : MessageHandleBase(message) {}
-
-  T& operator*() const {
-    return static_cast<T&>(MessageHandleBase::operator*());
-  }
-
-  T* operator->() const {
-    return static_cast<T*>(MessageHandleBase::operator->());
-  }
-};
-
-}  // namespace protozero
-
-#endif  // INCLUDE_PERFETTO_PROTOZERO_MESSAGE_HANDLE_H_
-// gen_amalgamated begin header: include/perfetto/protozero/proto_decoder.h
-/*
- * Copyright (C) 2018 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-#ifndef INCLUDE_PERFETTO_PROTOZERO_PROTO_DECODER_H_
-#define INCLUDE_PERFETTO_PROTOZERO_PROTO_DECODER_H_
-
-#include <stdint.h>
-#include <array>
-#include <memory>
-#include <vector>
-
-// gen_amalgamated expanded: #include "perfetto/base/compiler.h"
-// gen_amalgamated expanded: #include "perfetto/base/logging.h"
-// gen_amalgamated expanded: #include "perfetto/protozero/field.h"
-// gen_amalgamated expanded: #include "perfetto/protozero/proto_utils.h"
-
-namespace protozero {
-
-// A generic protobuf decoder. Doesn't require any knowledge about the proto
-// schema. It tokenizes fields, retrieves their ID and type and exposes
-// accessors to retrieve its values.
-// It does NOT recurse in nested submessages, instead it just computes their
-// boundaries, recursion is left to the caller.
-// This class is designed to be used in perf-sensitive contexts. It does not
-// allocate and does not perform any proto semantic checks (e.g. repeated /
-// required / optional). It's supposedly safe wrt out-of-bounds memory accesses
-// (see proto_decoder_fuzzer.cc).
-// This class serves also as a building block for TypedProtoDecoder, used when
-// the schema is known at compile time.
-class ProtoDecoder {
- public:
-  // Creates a ProtoDecoder using the given |buffer| with size |length| bytes.
-  inline ProtoDecoder(const uint8_t* buffer, size_t length)
-      : begin_(buffer), end_(buffer + length), read_ptr_(buffer) {}
-
-  // Reads the next field from the buffer and advances the read cursor. If a
-  // full field cannot be read, the returned Field will be invalid (i.e.
-  // field.valid() == false).
-  Field ReadField();
-
-  // Finds the first field with the given id. Doesn't affect the read cursor.
-  Field FindField(uint32_t field_id);
-
-  // Resets the read cursor to the start of the buffer.
-  inline void Reset() { read_ptr_ = begin_; }
-
-  // Resets the read cursor to the given position (must be within the buffer).
-  inline void Reset(const uint8_t* pos) {
-    PERFETTO_DCHECK(pos >= begin_ && pos < end_);
-    read_ptr_ = pos;
-  }
-
-  // Returns the position of read cursor, relative to the start of the buffer.
-  inline size_t read_offset() const {
-    return static_cast<size_t>(read_ptr_ - begin_);
-  }
-
-  inline size_t bytes_left() const {
-    PERFETTO_DCHECK(read_ptr_ <= end_);
-    return static_cast<size_t>(end_ - read_ptr_);
-  }
-
-  const uint8_t* begin() const { return begin_; }
-  const uint8_t* end() const { return end_; }
-
- protected:
-  const uint8_t* const begin_;
-  const uint8_t* const end_;
-  const uint8_t* read_ptr_ = nullptr;
-};
-
-// An iterator-like class used to iterate through repeated fields. Used by
-// TypedProtoDecoder. The iteration sequence is a bit counter-intuitive due to
-// the fact that fields_[field_id] holds the *last* value of the field, not the
-// first, but the remaining storage holds repeated fields in FIFO order.
-// Assume that we push the 10,11,12 into a repeated field with ID=1.
-//
-// Decoder memory layout:  [  fields storage  ] [ repeated fields storage]
-// 1st iteration:           10
-// 2nd iteration:           11                   10
-// 3rd iteration:           12                   10 11
-//
-// We start the iteration @ fields_[num_fields], which is the start of the
-// repeated fields storage, proceed until the end and lastly jump @ fields_[id].
-class RepeatedFieldIterator {
- public:
-  RepeatedFieldIterator(uint32_t field_id,
-                        const Field* begin,
-                        const Field* end,
-                        const Field* last)
-      : field_id_(field_id), iter_(begin), end_(end), last_(last) {
-    FindNextMatchingId();
-  }
-
-  inline const Field* operator->() const { return &*iter_; }
-  inline const Field& operator*() const { return *iter_; }
-  inline explicit operator bool() const { return iter_ != end_; }
-
-  RepeatedFieldIterator& operator++() {
-    PERFETTO_DCHECK(iter_ != end_);
-    if (iter_ == last_) {
-      iter_ = end_;
-      return *this;
-    }
-    ++iter_;
-    FindNextMatchingId();
-    return *this;
-  }
-
- private:
-  inline void FindNextMatchingId() {
-    PERFETTO_DCHECK(iter_ != last_);
-    for (; iter_ != end_; ++iter_) {
-      if (iter_->id() == field_id_)
-        return;
-    }
-    iter_ = last_->valid() ? last_ : end_;
-  }
-
-  uint32_t field_id_;
-
-  // Initially points to the beginning of the repeated field storage, then is
-  // incremented as we call operator++().
-  const Field* iter_;
-
-  // Always points to fields_[size_], i.e. past the end of the storage.
-  const Field* end_;
-
-  // Always points to fields_[field_id].
-  const Field* last_;
-};
-
-// This decoder loads all fields upfront, without recursing in nested messages.
-// It is used as a base class for typed decoders generated by the pbzero plugin.
-// The split between TypedProtoDecoderBase and TypedProtoDecoder<> is to have
-// unique definition of functions like ParseAllFields() and ExpandHeapStorage().
-// The storage (either on-stack or on-heap) for this class is organized as
-// follows:
-// |-------------------------- fields_ ----------------------|
-// [ field 0 (invalid) ] [ fields 1 .. N ] [ repeated fields ]
-//                                        ^                  ^
-//                                        num_fields_        size_
-class TypedProtoDecoderBase : public ProtoDecoder {
- public:
-  // If the field |id| is known at compile time, prefer the templated
-  // specialization at<kFieldNumber>().
-  inline const Field& Get(uint32_t id) {
-    return PERFETTO_LIKELY(id < num_fields_) ? fields_[id] : fields_[0];
-  }
-
-  // Returns an object that allows to iterate over all instances of a repeated
-  // field given its id. Example usage:
-  // for (auto it = decoder.GetRepeated(N); it; ++it) { ... }
-  inline RepeatedFieldIterator GetRepeated(uint32_t field_id) const {
-    return RepeatedFieldIterator(field_id, &fields_[num_fields_],
-                                 &fields_[size_], &fields_[field_id]);
-  }
-
- protected:
-  TypedProtoDecoderBase(Field* storage,
-                        uint32_t num_fields,
-                        uint32_t capacity,
-                        const uint8_t* buffer,
-                        size_t length)
-      : ProtoDecoder(buffer, length),
-        fields_(storage),
-        num_fields_(num_fields),
-        size_(num_fields),
-        capacity_(capacity) {
-    // The reason why Field needs to be trivially de/constructible is to avoid
-    // implicit initializers on all the ~1000 entries. We need it to initialize
-    // only on the first |max_field_id| fields, the remaining capacity doesn't
-    // require initialization.
-    static_assert(PERFETTO_IS_TRIVIALLY_CONSTRUCTIBLE(Field) &&
-                      std::is_trivially_destructible<Field>::value &&
-                      std::is_trivial<Field>::value,
-                  "Field must be a trivial aggregate type");
-    memset(fields_, 0, sizeof(Field) * num_fields_);
-  }
-
-  void ParseAllFields();
-
-  // Called when the default on-stack storage is exhausted and new repeated
-  // fields need to be pushed.
-  void ExpandHeapStorage();
-
-  // Used only in presence of a large number of repeated fields, when the
-  // default on-stack storage is exhausted.
-  std::unique_ptr<Field[]> heap_storage_;
-
-  // Points to the storage, either on-stack (default, provided by the template
-  // specialization) or |heap_storage_| after ExpandHeapStorage() is called, in
-  // case of a large number of repeated fields.
-  Field* fields_;
-
-  // Number of fields without accounting repeated storage. This is equal to
-  // MAX_FIELD_ID + 1 (to account for the invalid 0th field).
-  // This value is always <= size_ (and hence <= capacity);
-  uint32_t num_fields_;
-
-  // Number of active |fields_| entries. This is initially equal to the highest
-  // number of fields for the message (num_fields_ == MAX_FIELD_ID + 1) and can
-  // grow up to |capacity_| in the case of repeated fields.
-  uint32_t size_;
-
-  // Initially equal to kFieldsCapacity of the TypedProtoDecoder
-  // specialization. Can grow when falling back on heap-based storage, in which
-  // case it represents the size (#fields with each entry of a repeated field
-  // counted individually) of the |heap_storage_| array.
-  uint32_t capacity_;
-};
-
-// Template class instantiated by the auto-generated decoder classes declared in
-// xxx.pbzero.h files.
-template <int MAX_FIELD_ID, bool HAS_REPEATED_FIELDS>
-class TypedProtoDecoder : public TypedProtoDecoderBase {
- public:
-  TypedProtoDecoder(const uint8_t* buffer, size_t length)
-      : TypedProtoDecoderBase(on_stack_storage_,
-                              /*num_fields=*/MAX_FIELD_ID + 1,
-                              kCapacity,
-                              buffer,
-                              length) {
-    static_assert(MAX_FIELD_ID <= kMaxDecoderFieldId, "Field ordinal too high");
-    TypedProtoDecoderBase::ParseAllFields();
-  }
-
-  template <uint32_t FIELD_ID>
-  inline const Field& at() const {
-    static_assert(FIELD_ID <= MAX_FIELD_ID, "FIELD_ID > MAX_FIELD_ID");
-    return fields_[FIELD_ID];
-  }
-
- private:
-  // In the case of non-repeated fields, this constant defines the highest field
-  // id we are able to decode. This is to limit the on-stack storage.
-  // In the case of repeated fields, this constant defines the max number of
-  // repeated fields that we'll be able to store before falling back on the
-  // heap. Keep this value in sync with the one in protozero_generator.cc.
-  static constexpr size_t kMaxDecoderFieldId = 999;
-
-  // If we the message has no repeated fields we need at most N Field entries
-  // in the on-stack storage, where N is the highest field id.
-  // Otherwise we need some room to store repeated fields.
-  static constexpr size_t kCapacity =
-      1 + (HAS_REPEATED_FIELDS ? kMaxDecoderFieldId : MAX_FIELD_ID);
-
-  Field on_stack_storage_[kCapacity];
-};
-
-}  // namespace protozero
-
-#endif  // INCLUDE_PERFETTO_PROTOZERO_PROTO_DECODER_H_
-// gen_amalgamated begin header: include/perfetto/protozero/proto_utils.h
-/*
- * Copyright (C) 2017 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-#ifndef INCLUDE_PERFETTO_PROTOZERO_PROTO_UTILS_H_
-#define INCLUDE_PERFETTO_PROTOZERO_PROTO_UTILS_H_
-
-#include <inttypes.h>
-#include <stddef.h>
-
-#include <type_traits>
-
-// gen_amalgamated expanded: #include "perfetto/base/logging.h"
-
-namespace protozero {
-namespace proto_utils {
-
-// See https://developers.google.com/protocol-buffers/docs/encoding wire types.
-// This is a type encoded into the proto that provides just enough info to
-// find the length of the following value.
-enum class ProtoWireType : uint32_t {
-  kVarInt = 0,
-  kFixed64 = 1,
-  kLengthDelimited = 2,
-  kFixed32 = 5,
-};
-
-// This is the type defined in the proto for each field. This information
-// is used to decide the translation strategy when writing the trace.
-enum class ProtoSchemaType {
-  kUnknown = 0,
-  kDouble,
-  kFloat,
-  kInt64,
-  kUint64,
-  kInt32,
-  kFixed64,
-  kFixed32,
-  kBool,
-  kString,
-  kGroup,  // Deprecated (proto2 only)
-  kMessage,
-  kBytes,
-  kUint32,
-  kEnum,
-  kSfixed32,
-  kSfixed64,
-  kSint32,
-  kSint64,
-};
-
-inline const char* ProtoSchemaToString(ProtoSchemaType v) {
-  switch (v) {
-    case ProtoSchemaType::kUnknown:
-      return "unknown";
-    case ProtoSchemaType::kDouble:
-      return "double";
-    case ProtoSchemaType::kFloat:
-      return "float";
-    case ProtoSchemaType::kInt64:
-      return "int64";
-    case ProtoSchemaType::kUint64:
-      return "uint64";
-    case ProtoSchemaType::kInt32:
-      return "int32";
-    case ProtoSchemaType::kFixed64:
-      return "fixed64";
-    case ProtoSchemaType::kFixed32:
-      return "fixed32";
-    case ProtoSchemaType::kBool:
-      return "bool";
-    case ProtoSchemaType::kString:
-      return "string";
-    case ProtoSchemaType::kGroup:
-      return "group";
-    case ProtoSchemaType::kMessage:
-      return "message";
-    case ProtoSchemaType::kBytes:
-      return "bytes";
-    case ProtoSchemaType::kUint32:
-      return "uint32";
-    case ProtoSchemaType::kEnum:
-      return "enum";
-    case ProtoSchemaType::kSfixed32:
-      return "sfixed32";
-    case ProtoSchemaType::kSfixed64:
-      return "sfixed64";
-    case ProtoSchemaType::kSint32:
-      return "sint32";
-    case ProtoSchemaType::kSint64:
-      return "sint64";
-  }
-  // For gcc:
-  PERFETTO_DCHECK(false);
-  return "";
-}
-
-// Maximum message size supported: 256 MiB (4 x 7-bit due to varint encoding).
-constexpr size_t kMessageLengthFieldSize = 4;
-constexpr size_t kMaxMessageLength = (1u << (kMessageLengthFieldSize * 7)) - 1;
-
-// Field tag is encoded as 32-bit varint (5 bytes at most).
-// Largest value of simple (not length-delimited) field is 64-bit varint
-// (10 bytes at most). 15 bytes buffer is enough to store a simple field.
-constexpr size_t kMaxTagEncodedSize = 5;
-constexpr size_t kMaxSimpleFieldEncodedSize = kMaxTagEncodedSize + 10;
-
-// Proto types: (int|uint|sint)(32|64), bool, enum.
-constexpr uint32_t MakeTagVarInt(uint32_t field_id) {
-  return (field_id << 3) | static_cast<uint32_t>(ProtoWireType::kVarInt);
-}
-
-// Proto types: fixed64, sfixed64, fixed32, sfixed32, double, float.
-template <typename T>
-constexpr uint32_t MakeTagFixed(uint32_t field_id) {
-  static_assert(sizeof(T) == 8 || sizeof(T) == 4, "Value must be 4 or 8 bytes");
-  return (field_id << 3) |
-         static_cast<uint32_t>((sizeof(T) == 8 ? ProtoWireType::kFixed64
-                                               : ProtoWireType::kFixed32));
-}
-
-// Proto types: string, bytes, embedded messages.
-constexpr uint32_t MakeTagLengthDelimited(uint32_t field_id) {
-  return (field_id << 3) |
-         static_cast<uint32_t>(ProtoWireType::kLengthDelimited);
-}
-
-// Proto types: sint64, sint32.
-template <typename T>
-inline typename std::make_unsigned<T>::type ZigZagEncode(T value) {
-  return static_cast<typename std::make_unsigned<T>::type>(
-      (value << 1) ^ (value >> (sizeof(T) * 8 - 1)));
-}
-
-template <typename T>
-inline uint8_t* WriteVarInt(T value, uint8_t* target) {
-  // If value is <= 0 we must first sign extend to int64_t (see [1]).
-  // Finally we always cast to an unsigned value to to avoid arithmetic
-  // (sign expanding) shifts in the while loop.
-  // [1]: "If you use int32 or int64 as the type for a negative number, the
-  // resulting varint is always ten bytes long".
-  // - developers.google.com/protocol-buffers/docs/encoding
-  // So for each input type we do the following casts:
-  // uintX_t -> uintX_t -> uintX_t
-  // int8_t  -> int64_t -> uint64_t
-  // int16_t -> int64_t -> uint64_t
-  // int32_t -> int64_t -> uint64_t
-  // int64_t -> int64_t -> uint64_t
-  using MaybeExtendedType =
-      typename std::conditional<std::is_unsigned<T>::value, T, int64_t>::type;
-  using UnsignedType = typename std::make_unsigned<MaybeExtendedType>::type;
-
-  MaybeExtendedType extended_value = static_cast<MaybeExtendedType>(value);
-  UnsignedType unsigned_value = static_cast<UnsignedType>(extended_value);
-
-  while (unsigned_value >= 0x80) {
-    *target++ = static_cast<uint8_t>(unsigned_value) | 0x80;
-    unsigned_value >>= 7;
-  }
-  *target = static_cast<uint8_t>(unsigned_value);
-  return target + 1;
-}
-
-// Writes a fixed-size redundant encoding of the given |value|. This is
-// used to backfill fixed-size reservations for the length field using a
-// non-canonical varint encoding (e.g. \x81\x80\x80\x00 instead of \x01).
-// See https://github.com/google/protobuf/issues/1530.
-// In particular, this is used for nested messages. The size of a nested message
-// is not known until all its field have been written. |kMessageLengthFieldSize|
-// bytes are reserved to encode the size field and backfilled at the end.
-inline void WriteRedundantVarInt(uint32_t value, uint8_t* buf) {
-  for (size_t i = 0; i < kMessageLengthFieldSize; ++i) {
-    const uint8_t msb = (i < kMessageLengthFieldSize - 1) ? 0x80 : 0;
-    buf[i] = static_cast<uint8_t>(value) | msb;
-    value >>= 7;
-  }
-}
-
-template <uint32_t field_id>
-void StaticAssertSingleBytePreamble() {
-  static_assert(field_id < 16,
-                "Proto field id too big to fit in a single byte preamble");
-}
-
-// Parses a VarInt from the encoded buffer [start, end). |end| is STL-style and
-// points one byte past the end of buffer.
-// The parsed int value is stored in the output arg |value|. Returns a pointer
-// to the next unconsumed byte (so start < retval <= end) or |start| if the
-// VarInt could not be fully parsed because there was not enough space in the
-// buffer.
-inline const uint8_t* ParseVarInt(const uint8_t* start,
-                                  const uint8_t* end,
-                                  uint64_t* value) {
-  const uint8_t* pos = start;
-  uint64_t shift = 0;
-  *value = 0;
-  do {
-    if (PERFETTO_UNLIKELY(pos >= end)) {
-      *value = 0;
-      return start;
-    }
-    PERFETTO_DCHECK(shift < 64ull);
-    *value |= static_cast<uint64_t>(*pos & 0x7f) << shift;
-    shift += 7;
-  } while (*pos++ & 0x80);
-  return pos;
-}
-
-}  // namespace proto_utils
-}  // namespace protozero
-
-#endif  // INCLUDE_PERFETTO_PROTOZERO_PROTO_UTILS_H_
-// gen_amalgamated begin header: include/perfetto/protozero/scattered_heap_buffer.h
-/*
- * Copyright (C) 2017 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-#ifndef INCLUDE_PERFETTO_PROTOZERO_SCATTERED_HEAP_BUFFER_H_
-#define INCLUDE_PERFETTO_PROTOZERO_SCATTERED_HEAP_BUFFER_H_
-
-#include <memory>
-#include <string>
-#include <vector>
-
-// gen_amalgamated expanded: #include "perfetto/base/export.h"
-// gen_amalgamated expanded: #include "perfetto/base/logging.h"
-// gen_amalgamated expanded: #include "perfetto/protozero/scattered_stream_writer.h"
-
-namespace protozero {
-
-class Message;
-
-class PERFETTO_EXPORT ScatteredHeapBuffer
-    : public protozero::ScatteredStreamWriter::Delegate {
- public:
-  class PERFETTO_EXPORT Slice {
-   public:
-    explicit Slice(size_t size);
-    Slice(Slice&& slice) noexcept;
-    ~Slice();
-
-    inline protozero::ContiguousMemoryRange GetTotalRange() const {
-      return {buffer_.get(), buffer_.get() + size_};
-    }
-
-    inline protozero::ContiguousMemoryRange GetUsedRange() const {
-      return {buffer_.get(), buffer_.get() + size_ - unused_bytes_};
-    }
-
-    uint8_t* start() const { return buffer_.get(); }
-    size_t size() const { return size_; }
-    size_t unused_bytes() const { return unused_bytes_; }
-    void set_unused_bytes(size_t unused_bytes) {
-      PERFETTO_DCHECK(unused_bytes_ <= size_);
-      unused_bytes_ = unused_bytes;
-    }
-
-   private:
-    std::unique_ptr<uint8_t[]> buffer_;
-    const size_t size_;
-    size_t unused_bytes_;
-  };
-
-  ScatteredHeapBuffer(size_t initial_slice_size_bytes = 128,
-                      size_t maximum_slice_size_bytes = 128 * 1024);
-  ~ScatteredHeapBuffer() override;
-
-  // protozero::ScatteredStreamWriter::Delegate implementation.
-  protozero::ContiguousMemoryRange GetNewBuffer() override;
-
-  // Stitch all the slices into a single contiguous buffer.
-  std::vector<uint8_t> StitchSlices();
-
-  const std::vector<Slice>& slices() const { return slices_; }
-
-  void set_writer(protozero::ScatteredStreamWriter* writer) {
-    writer_ = writer;
-  }
-
-  // Update unused_bytes() of the current |Slice| based on the writer's state.
-  void AdjustUsedSizeOfCurrentSlice();
-
-  // Returns the total size the slices occupy in heap memory (including unused).
-  size_t GetTotalSize();
-
- private:
-  size_t next_slice_size_;
-  const size_t maximum_slice_size_;
-  protozero::ScatteredStreamWriter* writer_ = nullptr;
-  std::vector<Slice> slices_;
-};
-
-// Helper function to create heap-based protozero messages in one line.
-// This is a convenience wrapper, mostly for tests, to avoid having to do:
-//   MyMessage msg;
-//   ScatteredHeapBuffer shb;
-//   ScatteredStreamWriter writer(&shb);
-//   shb.set_writer(&writer);
-//   msg.Reset(&shb);
-// Just to get an easily serializable message. Instead this allows simply:
-//   HeapBuffered<MyMessage> msg;
-//   msg->set_stuff(...);
-//   msg->SerializeAsString();
-template <typename T = ::protozero::Message>
-class HeapBuffered {
- public:
-  HeapBuffered() : shb_(4096, 4096), writer_(&shb_) {
-    shb_.set_writer(&writer_);
-    msg_.Reset(&writer_);
-  }
-
-  // This can't be neither copied nor moved because Message hands out pointers
-  // to itself when creating submessages.
-  HeapBuffered(const HeapBuffered&) = delete;
-  HeapBuffered& operator=(const HeapBuffered&) = delete;
-  HeapBuffered(HeapBuffered&&) = delete;
-  HeapBuffered& operator=(HeapBuffered&&) = delete;
-
-  T* get() { return &msg_; }
-  T* operator->() { return &msg_; }
-
-  std::vector<uint8_t> SerializeAsArray() {
-    msg_.Finalize();
-    return shb_.StitchSlices();
-  }
-
-  std::string SerializeAsString() {
-    auto vec = SerializeAsArray();
-    return std::string(reinterpret_cast<const char*>(vec.data()), vec.size());
-  }
-
- private:
-  ScatteredHeapBuffer shb_;
-  ScatteredStreamWriter writer_;
-  T msg_;
-};
-
-}  // namespace protozero
-
-#endif  // INCLUDE_PERFETTO_PROTOZERO_SCATTERED_HEAP_BUFFER_H_
-// gen_amalgamated begin header: include/perfetto/protozero/scattered_stream_null_delegate.h
-/*
- * Copyright (C) 2018 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-#ifndef INCLUDE_PERFETTO_PROTOZERO_SCATTERED_STREAM_NULL_DELEGATE_H_
-#define INCLUDE_PERFETTO_PROTOZERO_SCATTERED_STREAM_NULL_DELEGATE_H_
-
-#include <memory>
-#include <vector>
-
-// gen_amalgamated expanded: #include "perfetto/base/export.h"
-// gen_amalgamated expanded: #include "perfetto/base/logging.h"
-// gen_amalgamated expanded: #include "perfetto/protozero/contiguous_memory_range.h"
-// gen_amalgamated expanded: #include "perfetto/protozero/scattered_stream_writer.h"
-
-namespace protozero {
-
-class PERFETTO_EXPORT ScatteredStreamWriterNullDelegate
-    : public ScatteredStreamWriter::Delegate {
- public:
-  explicit ScatteredStreamWriterNullDelegate(size_t chunk_size);
-  ~ScatteredStreamWriterNullDelegate() override;
-
-  // protozero::ScatteredStreamWriter::Delegate implementation.
-  ContiguousMemoryRange GetNewBuffer() override;
-
- private:
-  const size_t chunk_size_;
-  std::unique_ptr<uint8_t[]> chunk_;
-};
-
-}  // namespace protozero
-
-#endif  // INCLUDE_PERFETTO_PROTOZERO_SCATTERED_STREAM_NULL_DELEGATE_H_
-// gen_amalgamated begin header: include/perfetto/protozero/scattered_stream_writer.h
-/*
- * Copyright (C) 2017 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-#ifndef INCLUDE_PERFETTO_PROTOZERO_SCATTERED_STREAM_WRITER_H_
-#define INCLUDE_PERFETTO_PROTOZERO_SCATTERED_STREAM_WRITER_H_
-
-#include <assert.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
-
-// gen_amalgamated expanded: #include "perfetto/base/compiler.h"
-// gen_amalgamated expanded: #include "perfetto/base/export.h"
-// gen_amalgamated expanded: #include "perfetto/protozero/contiguous_memory_range.h"
-
-namespace protozero {
-
-// This class deals with the following problem: append-only proto messages want
-// to write a stream of bytes, without caring about the implementation of the
-// underlying buffer (which concretely will be either the trace ring buffer
-// or a heap-allocated buffer). The main deal is: proto messages don't know in
-// advance what their size will be.
-// Due to the tracing buffer being split into fixed-size chunks, on some
-// occasions, these writes need to be spread over two (or more) non-contiguous
-// chunks of memory. Similarly, when the buffer is backed by the heap, we want
-// to avoid realloc() calls, as they might cause a full copy of the contents
-// of the buffer.
-// The purpose of this class is to abstract away the non-contiguous write logic.
-// This class knows how to deal with writes as long as they fall in the same
-// ContiguousMemoryRange and defers the chunk-chaining logic to the Delegate.
-class PERFETTO_EXPORT ScatteredStreamWriter {
- public:
-  class PERFETTO_EXPORT Delegate {
-   public:
-    virtual ~Delegate();
-    virtual ContiguousMemoryRange GetNewBuffer() = 0;
-  };
-
-  explicit ScatteredStreamWriter(Delegate* delegate);
-  ~ScatteredStreamWriter();
-
-  inline void WriteByte(uint8_t value) {
-    if (write_ptr_ >= cur_range_.end)
-      Extend();
-    *write_ptr_++ = value;
-  }
-
-  // Assumes that the caller checked that there is enough headroom.
-  // TODO(primiano): perf optimization, this is a tracing hot path. The
-  // compiler can make strong optimization on memcpy if the size arg is a
-  // constexpr. Make a templated variant of this for fixed-size writes.
-  // TODO(primiano): restrict / noalias might also help.
-  inline void WriteBytesUnsafe(const uint8_t* src, size_t size) {
-    uint8_t* const end = write_ptr_ + size;
-    assert(end <= cur_range_.end);
-    memcpy(write_ptr_, src, size);
-    write_ptr_ = end;
-  }
-
-  inline void WriteBytes(const uint8_t* src, size_t size) {
-    uint8_t* const end = write_ptr_ + size;
-    if (PERFETTO_LIKELY(end <= cur_range_.end))
-      return WriteBytesUnsafe(src, size);
-    WriteBytesSlowPath(src, size);
-  }
-
-  void WriteBytesSlowPath(const uint8_t* src, size_t size);
-
-  // Reserves a fixed amount of bytes to be backfilled later. The reserved range
-  // is guaranteed to be contiguous and not span across chunks. |size| has to be
-  // <= than the size of a new buffer returned by the Delegate::GetNewBuffer().
-  uint8_t* ReserveBytes(size_t size);
-
-  // Fast (but unsafe) version of the above. The caller must have previously
-  // checked that there are at least |size| contiguous bytes available.
-  // Returns only the start pointer of the reservation.
-  uint8_t* ReserveBytesUnsafe(size_t size) {
-    uint8_t* begin = write_ptr_;
-    write_ptr_ += size;
-    assert(write_ptr_ <= cur_range_.end);
-    return begin;
-  }
-
-  // Resets the buffer boundaries and the write pointer to the given |range|.
-  // Subsequent WriteByte(s) will write into |range|.
-  void Reset(ContiguousMemoryRange range);
-
-  // Number of contiguous free bytes in |cur_range_| that can be written without
-  // requesting a new buffer.
-  size_t bytes_available() const {
-    return static_cast<size_t>(cur_range_.end - write_ptr_);
-  }
-
-  uint8_t* write_ptr() const { return write_ptr_; }
-
-  uint64_t written() const {
-    return written_previously_ +
-           static_cast<uint64_t>(write_ptr_ - cur_range_.begin);
-  }
-
- private:
-  ScatteredStreamWriter(const ScatteredStreamWriter&) = delete;
-  ScatteredStreamWriter& operator=(const ScatteredStreamWriter&) = delete;
-
-  void Extend();
-
-  Delegate* const delegate_;
-  ContiguousMemoryRange cur_range_;
-  uint8_t* write_ptr_;
-  uint64_t written_previously_ = 0;
-};
-
-}  // namespace protozero
-
-#endif  // INCLUDE_PERFETTO_PROTOZERO_SCATTERED_STREAM_WRITER_H_
 
