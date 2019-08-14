@@ -369,6 +369,9 @@ class PERFETTO_EXPORT DataSourceConfig {
   uint32_t trace_duration_ms() const { return trace_duration_ms_; }
   void set_trace_duration_ms(uint32_t value) { trace_duration_ms_ = value; }
 
+  uint32_t stop_timeout_ms() const { return stop_timeout_ms_; }
+  void set_stop_timeout_ms(uint32_t value) { stop_timeout_ms_ = value; }
+
   bool enable_extra_guardrails() const { return enable_extra_guardrails_; }
   void set_enable_extra_guardrails(bool value) {
     enable_extra_guardrails_ = value;
@@ -445,6 +448,7 @@ class PERFETTO_EXPORT DataSourceConfig {
   std::string name_{};
   uint32_t target_buffer_{};
   uint32_t trace_duration_ms_{};
+  uint32_t stop_timeout_ms_{};
   bool enable_extra_guardrails_{};
   uint64_t tracing_session_id_{};
   std::string ftrace_config_;         // [lazy=true]
@@ -1224,6 +1228,12 @@ class PERFETTO_EXPORT TraceConfig {
     return incident_report_config_.get();
   }
 
+  const std::string& trace_uuid() const { return trace_uuid_; }
+  void set_trace_uuid(const std::string& value) { trace_uuid_ = value; }
+  void set_trace_uuid(const void* p, size_t s) {
+    trace_uuid_.assign(reinterpret_cast<const char*>(p), s);
+  }
+
  private:
   std::vector<BufferConfig> buffers_;
   std::vector<DataSource> data_sources_;
@@ -1250,6 +1260,7 @@ class PERFETTO_EXPORT TraceConfig {
   std::string unique_session_name_{};
   CompressionType compression_type_{};
   ::perfetto::base::CopyablePtr<IncidentReportConfig> incident_report_config_;
+  std::string trace_uuid_{};
 
   // Allows to preserve unknown protobuf fields for compatibility
   // with future versions of .proto files.
@@ -2583,6 +2594,13 @@ class RepeatedFieldIterator {
     return *this;
   }
 
+  RepeatedFieldIterator operator++(int) {
+    PERFETTO_DCHECK(iter_ != end_);
+    RepeatedFieldIterator it(*this);
+    ++(*this);
+    return it;
+  }
+
  private:
   inline void FindNextMatchingId() {
     PERFETTO_DCHECK(iter_ != last_);
@@ -2707,6 +2725,17 @@ class TypedProtoDecoder : public TypedProtoDecoderBase {
     return fields_[FIELD_ID];
   }
 
+  TypedProtoDecoder(TypedProtoDecoder&& other) noexcept
+      : TypedProtoDecoderBase(std::move(other)) {
+    // If the moved-from decoder was using on-stack storage, we need to update
+    // our pointer to point to this decoder's on-stack storage.
+    if (fields_ == other.on_stack_storage_) {
+      fields_ = on_stack_storage_;
+      memcpy(on_stack_storage_, other.on_stack_storage_,
+             sizeof(on_stack_storage_));
+    }
+  }
+
  private:
   // In the case of non-repeated fields, this constant defines the highest field
   // id we are able to decode. This is to limit the on-stack storage.
@@ -2752,6 +2781,8 @@ class FtraceEventBundle;
 class FtraceStats;
 class GpuCounterEvent;
 class GpuRenderStageEvent;
+class GraphicsFrameEvent;
+class HeapGraph;
 class InodeFileMap;
 class InternedData;
 class PackagesList;
@@ -2768,9 +2799,19 @@ class SystemInfo;
 class TestEvent;
 class ThreadDescriptor;
 class TraceConfig;
+class TracePacketDefaults;
 class TraceStats;
 class TrackEvent;
 class Trigger;
+
+enum TracePacket_SequenceFlags : int32_t {
+  TracePacket_SequenceFlags_SEQ_UNSPECIFIED = 0,
+  TracePacket_SequenceFlags_SEQ_INCREMENTAL_STATE_CLEARED = 1,
+  TracePacket_SequenceFlags_SEQ_NEEDS_INCREMENTAL_STATE = 2,
+};
+
+const TracePacket_SequenceFlags TracePacket_SequenceFlags_MIN = TracePacket_SequenceFlags_SEQ_UNSPECIFIED;
+const TracePacket_SequenceFlags TracePacket_SequenceFlags_MAX = TracePacket_SequenceFlags_SEQ_NEEDS_INCREMENTAL_STATE;
 
 class TracePacket_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/900, /*HAS_REPEATED_FIELDS=*/false> {
  public:
@@ -2779,6 +2820,8 @@ class TracePacket_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID
   explicit TracePacket_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
   bool has_timestamp() const { return at<8>().valid(); }
   uint64_t timestamp() const { return at<8>().as_uint64(); }
+  bool has_timestamp_clock_id() const { return at<58>().valid(); }
+  uint32_t timestamp_clock_id() const { return at<58>().as_uint32(); }
   bool has_ftrace_events() const { return at<1>().valid(); }
   ::protozero::ConstBytes ftrace_events() const { return at<1>().as_bytes(); }
   bool has_process_tree() const { return at<2>().valid(); }
@@ -2827,6 +2870,10 @@ class TracePacket_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID
   ::protozero::ConstBytes gpu_render_stage_event() const { return at<53>().as_bytes(); }
   bool has_streaming_profile_packet() const { return at<54>().valid(); }
   ::protozero::ConstBytes streaming_profile_packet() const { return at<54>().as_bytes(); }
+  bool has_heap_graph() const { return at<56>().valid(); }
+  ::protozero::ConstBytes heap_graph() const { return at<56>().as_bytes(); }
+  bool has_graphics_frame_event() const { return at<57>().valid(); }
+  ::protozero::ConstBytes graphics_frame_event() const { return at<57>().as_bytes(); }
   bool has_profiled_frame_symbols() const { return at<55>().valid(); }
   ::protozero::ConstBytes profiled_frame_symbols() const { return at<55>().as_bytes(); }
   bool has_process_descriptor() const { return at<43>().valid(); }
@@ -2845,8 +2892,12 @@ class TracePacket_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID
   uint32_t trusted_packet_sequence_id() const { return at<10>().as_uint32(); }
   bool has_interned_data() const { return at<12>().valid(); }
   ::protozero::ConstBytes interned_data() const { return at<12>().as_bytes(); }
+  bool has_sequence_flags() const { return at<13>().valid(); }
+  uint32_t sequence_flags() const { return at<13>().as_uint32(); }
   bool has_incremental_state_cleared() const { return at<41>().valid(); }
   bool incremental_state_cleared() const { return at<41>().as_bool(); }
+  bool has_trace_packet_defaults() const { return at<59>().valid(); }
+  ::protozero::ConstBytes trace_packet_defaults() const { return at<59>().as_bytes(); }
   bool has_previous_packet_dropped() const { return at<42>().valid(); }
   bool previous_packet_dropped() const { return at<42>().as_bool(); }
 };
@@ -2856,6 +2907,7 @@ class TracePacket : public ::protozero::Message {
   using Decoder = TracePacket_Decoder;
   enum : int32_t {
     kTimestampFieldNumber = 8,
+    kTimestampClockIdFieldNumber = 58,
     kFtraceEventsFieldNumber = 1,
     kProcessTreeFieldNumber = 2,
     kProcessStatsFieldNumber = 9,
@@ -2880,6 +2932,8 @@ class TracePacket : public ::protozero::Message {
     kGpuCounterEventFieldNumber = 52,
     kGpuRenderStageEventFieldNumber = 53,
     kStreamingProfilePacketFieldNumber = 54,
+    kHeapGraphFieldNumber = 56,
+    kGraphicsFrameEventFieldNumber = 57,
     kProfiledFrameSymbolsFieldNumber = 55,
     kProcessDescriptorFieldNumber = 43,
     kThreadDescriptorFieldNumber = 44,
@@ -2889,11 +2943,20 @@ class TracePacket : public ::protozero::Message {
     kTrustedUidFieldNumber = 3,
     kTrustedPacketSequenceIdFieldNumber = 10,
     kInternedDataFieldNumber = 12,
+    kSequenceFlagsFieldNumber = 13,
     kIncrementalStateClearedFieldNumber = 41,
+    kTracePacketDefaultsFieldNumber = 59,
     kPreviousPacketDroppedFieldNumber = 42,
   };
+  using SequenceFlags = ::perfetto::protos::pbzero::TracePacket_SequenceFlags;
+  static const SequenceFlags SEQ_UNSPECIFIED = TracePacket_SequenceFlags_SEQ_UNSPECIFIED;
+  static const SequenceFlags SEQ_INCREMENTAL_STATE_CLEARED = TracePacket_SequenceFlags_SEQ_INCREMENTAL_STATE_CLEARED;
+  static const SequenceFlags SEQ_NEEDS_INCREMENTAL_STATE = TracePacket_SequenceFlags_SEQ_NEEDS_INCREMENTAL_STATE;
   void set_timestamp(uint64_t value) {
     AppendVarInt(8, value);
+  }
+  void set_timestamp_clock_id(uint32_t value) {
+    AppendVarInt(58, value);
   }
   template <typename T = FtraceEventBundle> T* set_ftrace_events() {
     return BeginNestedMessage<T>(1);
@@ -2991,6 +3054,14 @@ class TracePacket : public ::protozero::Message {
     return BeginNestedMessage<T>(54);
   }
 
+  template <typename T = HeapGraph> T* set_heap_graph() {
+    return BeginNestedMessage<T>(56);
+  }
+
+  template <typename T = GraphicsFrameEvent> T* set_graphics_frame_event() {
+    return BeginNestedMessage<T>(57);
+  }
+
   template <typename T = ProfiledFrameSymbols> T* set_profiled_frame_symbols() {
     return BeginNestedMessage<T>(55);
   }
@@ -3023,9 +3094,16 @@ class TracePacket : public ::protozero::Message {
     return BeginNestedMessage<T>(12);
   }
 
+  void set_sequence_flags(uint32_t value) {
+    AppendVarInt(13, value);
+  }
   void set_incremental_state_cleared(bool value) {
     AppendTinyVarInt(41, value);
   }
+  template <typename T = TracePacketDefaults> T* set_trace_packet_defaults() {
+    return BeginNestedMessage<T>(59);
+  }
+
   void set_previous_packet_dropped(bool value) {
     AppendTinyVarInt(42, value);
   }
@@ -3115,11 +3193,15 @@ class TracePacket;
 
 // The bare-minimum subset of the TraceWriter interface that is exposed as a
 // fully public API.
+// See comments in /include/perfetto/ext/tracing/core/trace_writer.h.
 class TraceWriterBase {
  public:
   virtual ~TraceWriterBase();
+
   virtual protozero::MessageHandle<protos::pbzero::TracePacket>
   NewTracePacket() = 0;
+
+  virtual void Flush(std::function<void()> callback = {}) = 0;
 };
 
 }  // namespace perfetto
@@ -3171,10 +3253,20 @@ class TracingTLS;
 // There is one of these object per DataSource instance (up to
 // kMaxDataSourceInstances).
 struct DataSourceState {
-  // If false the data source is initialized but not started yet (or stopped).
-  // This is set right before calling OnStart() and cleared right before calling
-  // OnStop()
-  bool started = false;
+  // This boolean flag determines whether the DataSource::Trace() method should
+  // do something or be a no-op. This flag doesn't give the full guarantee
+  // that tracing data will be visible in the trace, it just makes it so that
+  // the client attemps writing trace data and interacting with the service.
+  // For instance, when a tracing session ends the service will reject data
+  // commits that arrive too late even if the producer hasn't received the stop
+  // IPC message.
+  // This flag is set right before calling OnStart() and cleared right before
+  // calling OnStop(), unless using HandleStopAsynchronously() (see comments
+  // in data_source.h).
+  // Keep this flag as the first field. This allows the compiler to directly
+  // dereference the DataSourceState* pointer in the trace fast-path without
+  // doing extra pointr arithmetic.
+  bool trace_lambda_enabled = false;
 
   // The central buffer id that all TraceWriter(s) created by this data source
   // must target.
@@ -3196,7 +3288,7 @@ struct DataSourceState {
   // This is to prevent that accessing the data source on an arbitrary embedder
   // thread races with the internal IPC thread destroying the data source
   // because of a end-of-tracing notification from the service.
-  std::mutex lock;
+  std::recursive_mutex lock;
   std::unique_ptr<DataSourceBase> data_source;
 };
 
@@ -3209,7 +3301,8 @@ struct DataSourceStateStorage {
 
 // Per-DataSource-type global state.
 struct DataSourceStaticState {
-  uint32_t index = 0;  // Unique ID, assigned at registration time.
+  uint32_t index =
+      kMaxDataSources;  // Unique ID, assigned at registration time.
 
   // A bitmap that tells about the validity of each |instances| entry. When the
   // i-th bit of the bitmap it's set, instances[i] is valid.
@@ -3533,7 +3626,7 @@ class PERFETTO_EXPORT TracingMuxer {
   static TracingMuxer* instance_;
   Platform* const platform_ = nullptr;
 
-  // Incremented upon each data source stop. See comment in tracing_tls.h.
+  // Incremented every time a data source is destroyed. See tracing_tls.h.
   std::atomic<uint32_t> generation_{};
 };
 
@@ -3571,7 +3664,7 @@ namespace perfetto {
 template <typename T>
 class LockedHandle {
  public:
-  LockedHandle(std::mutex* mutex, T* obj) : lock_(*mutex), obj_(obj) {}
+  LockedHandle(std::recursive_mutex* mtx, T* obj) : lock_(*mtx), obj_(obj) {}
   LockedHandle() = default;  // For the invalid case.
   LockedHandle(LockedHandle&&) = default;
   LockedHandle& operator=(LockedHandle&&) = default;
@@ -3587,7 +3680,7 @@ class LockedHandle {
   T& operator*() { return *(this->operator->()); }
 
  private:
-  std::unique_lock<std::mutex> lock_;
+  std::unique_lock<std::recursive_mutex> lock_;
   T* obj_ = nullptr;
 };
 
@@ -3648,20 +3741,48 @@ class PERFETTO_EXPORT DataSourceBase {
  public:
   virtual ~DataSourceBase();
 
+  // TODO(primiano): change the const& args below to be pointers instead. It
+  // makes it more awkward to handle output arguments and require mutable(s).
+  // This requires synchronizing a breaking API change for existing embedders.
+
   // OnSetup() is invoked when tracing is configured. In most cases this happens
   // just before starting the trace. In the case of deferred start (see
   // deferred_start in trace_config.proto) start might happen later.
-  struct SetupArgs {
+  class SetupArgs {
+   public:
     // This is valid only within the scope of the OnSetup() call and must not
     // be retained.
     const DataSourceConfig* config = nullptr;
   };
   virtual void OnSetup(const SetupArgs&);
 
-  struct StartArgs {};
+  class StartArgs {};
   virtual void OnStart(const StartArgs&);
 
-  struct StopArgs {};
+  class StopArgs {
+   public:
+    virtual ~StopArgs();
+
+    // HandleAsynchronously() can optionally be called to defer the tracing
+    // session stop and write tracing data just before stopping.
+    // This function returns a closure that must be invoked after the last
+    // trace events have been emitted. The returned closure can be called from
+    // any thread. The caller also needs to explicitly call TraceContext.Flush()
+    // from the last Trace() lambda invocation because no other implicit flushes
+    // will happen after the stop signal.
+    // When this function is called, the tracing service will defer the stop of
+    // the tracing session until the returned closure is invoked.
+    // However, the caller cannot hang onto this closure for too long. The
+    // tracing service will forcefully stop the tracing session without waiting
+    // for pending producers after TraceConfig.data_source_stop_timeout_ms
+    // (default: 5s, can be overridden by Consumers when starting a trace).
+    // If the closure is called after this timeout an error will be logged and
+    // the trace data emitted will not be present in the trace. No other
+    // functional side effects (e.g. crashes or corruptions) will happen. In
+    // other words, it is fine to accidentally hold onto this closure for too
+    // long but, if that happens, some tracing data will be lost.
+    virtual std::function<void()> HandleStopAsynchronously() const = 0;
+  };
   virtual void OnStop(const StopArgs&);
 };
 
@@ -3683,6 +3804,22 @@ class DataSource : public DataSourceBase {
     TracePacketHandle NewTracePacket() {
       return trace_writer_->NewTracePacket();
     }
+
+    // Forces a commit of the thread-local tracing data written so far to the
+    // service. This is almost never required (tracing data is periodically
+    // committed as trace pages are filled up) and has a non-negligible
+    // performance hit (requires an IPC + refresh of the current thread-local
+    // chunk). The only case when this should be used is when handling OnStop()
+    // asynchronously, to ensure sure that the data is committed before the
+    // Stop timeout expires.
+    // The TracePacketHandle obtained by the last NewTracePacket() call must be
+    // finalized before calling Flush() (either implicitly by going out of scope
+    // or by explicitly calling Finalize()).
+    // |cb| is an optional callback. When non-null it will request the
+    // service to ACK the flush and will be invoked on an internal thread after
+    // the service has  acknowledged it. The callback might be NEVER INVOKED if
+    // the service crashes or the IPC connection is dropped.
+    void Flush(std::function<void()> cb = {}) { trace_writer_->Flush(cb); }
 
     // Returns a RAII handle to access the data source instance, guaranteeing
     // that it won't be deleted on another thread (because of trace stopping)
@@ -3812,7 +3949,7 @@ class DataSource : public DataSourceBase {
         instances =
             static_state_.valid_instances.load(std::memory_order_acquire);
         instance_state = static_state_.TryGetCached(instances, i);
-        if (!instance_state || !instance_state->started)
+        if (!instance_state || !instance_state->trace_lambda_enabled)
           return;
         tls_inst.backend_id = instance_state->backend_id;
         tls_inst.buffer_id = instance_state->buffer_id;
@@ -3865,6 +4002,16 @@ class DataSource : public DataSourceBase {
 };
 
 }  // namespace perfetto
+
+// If a data source is used across translation units, this declaration must be
+// placed into the header file defining the data source.
+#define PERFETTO_DECLARE_DATA_SOURCE_STATIC_MEMBERS(X)         \
+  template <>                                                  \
+  perfetto::internal::DataSourceStaticState                    \
+      perfetto::DataSource<X>::static_state_;                  \
+  template <>                                                  \
+  thread_local perfetto::internal::DataSourceThreadLocalState* \
+      perfetto::DataSource<X>::tls_state_
 
 // The API client must use this in a translation unit. This is because it needs
 // to instantiate the static storage for the datasource to allow the fastpath
@@ -3955,9 +4102,12 @@ class PERFETTO_EXPORT Tracing {
   // with a user-provided backend. Can only be called once.
   static void Initialize(const TracingInitArgs&);
 
+  // Start a new tracing session using the given tracing backend. Use
+  // |kUnspecifiedBackend| to select an available backend automatically.
   // For the moment this can be used only when initializing tracing in
   // kInProcess mode. For the system mode use the 'bin/perfetto' cmdline client.
-  static std::unique_ptr<TracingSession> NewTrace(BackendType);
+  static std::unique_ptr<TracingSession> NewTrace(
+      BackendType = kUnspecifiedBackend);
 
  private:
   Tracing() = delete;
@@ -3968,8 +4118,11 @@ class PERFETTO_EXPORT TracingSession {
   virtual ~TracingSession();
 
   // Configure the session passing the trace config.
+  // If a writable file handle is given through |fd|, the trace will
+  // automatically written to that file. Otherwise you should call ReadTrace()
+  // to retrieve the trace data. This call does not take ownership of |fd|.
   // TODO(primiano): add an error callback.
-  virtual void Setup(const TraceConfig&) = 0;
+  virtual void Setup(const TraceConfig&, int fd = -1) = 0;
 
   // Enable tracing asynchronously.
   virtual void Start() = 0;
@@ -4845,6 +4998,13 @@ class RepeatedFieldIterator {
     return *this;
   }
 
+  RepeatedFieldIterator operator++(int) {
+    PERFETTO_DCHECK(iter_ != end_);
+    RepeatedFieldIterator it(*this);
+    ++(*this);
+    return it;
+  }
+
  private:
   inline void FindNextMatchingId() {
     PERFETTO_DCHECK(iter_ != last_);
@@ -4967,6 +5127,17 @@ class TypedProtoDecoder : public TypedProtoDecoderBase {
   inline const Field& at() const {
     static_assert(FIELD_ID <= MAX_FIELD_ID, "FIELD_ID > MAX_FIELD_ID");
     return fields_[FIELD_ID];
+  }
+
+  TypedProtoDecoder(TypedProtoDecoder&& other) noexcept
+      : TypedProtoDecoderBase(std::move(other)) {
+    // If the moved-from decoder was using on-stack storage, we need to update
+    // our pointer to point to this decoder's on-stack storage.
+    if (fields_ == other.on_stack_storage_) {
+      fields_ = on_stack_storage_;
+      memcpy(on_stack_storage_, other.on_stack_storage_,
+             sizeof(on_stack_storage_));
+    }
   }
 
  private:
@@ -7110,7 +7281,7 @@ namespace pbzero {
 
 class TraceStats_BufferStats;
 
-class TraceStats_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/9, /*HAS_REPEATED_FIELDS=*/true> {
+class TraceStats_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/10, /*HAS_REPEATED_FIELDS=*/true> {
  public:
   TraceStats_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
   explicit TraceStats_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
@@ -7133,6 +7304,8 @@ class TraceStats_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=
   uint64_t chunks_discarded() const { return at<8>().as_uint64(); }
   bool has_patches_discarded() const { return at<9>().valid(); }
   uint64_t patches_discarded() const { return at<9>().as_uint64(); }
+  bool has_invalid_packets() const { return at<10>().valid(); }
+  uint64_t invalid_packets() const { return at<10>().as_uint64(); }
 };
 
 class TraceStats : public ::protozero::Message {
@@ -7148,6 +7321,7 @@ class TraceStats : public ::protozero::Message {
     kTotalBuffersFieldNumber = 7,
     kChunksDiscardedFieldNumber = 8,
     kPatchesDiscardedFieldNumber = 9,
+    kInvalidPacketsFieldNumber = 10,
   };
   using BufferStats = ::perfetto::protos::pbzero::TraceStats_BufferStats;
   template <typename T = TraceStats_BufferStats> T* add_buffer_stats() {
@@ -7178,9 +7352,12 @@ class TraceStats : public ::protozero::Message {
   void set_patches_discarded(uint64_t value) {
     AppendVarInt(9, value);
   }
+  void set_invalid_packets(uint64_t value) {
+    AppendVarInt(10, value);
+  }
 };
 
-class TraceStats_BufferStats_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/18, /*HAS_REPEATED_FIELDS=*/false> {
+class TraceStats_BufferStats_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/19, /*HAS_REPEATED_FIELDS=*/false> {
  public:
   TraceStats_BufferStats_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
   explicit TraceStats_BufferStats_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
@@ -7221,6 +7398,8 @@ class TraceStats_BufferStats_Decoder : public ::protozero::TypedProtoDecoder</*M
   uint64_t readaheads_failed() const { return at<8>().as_uint64(); }
   bool has_abi_violations() const { return at<9>().valid(); }
   uint64_t abi_violations() const { return at<9>().as_uint64(); }
+  bool has_trace_writer_packet_loss() const { return at<19>().valid(); }
+  uint64_t trace_writer_packet_loss() const { return at<19>().as_uint64(); }
 };
 
 class TraceStats_BufferStats : public ::protozero::Message {
@@ -7245,6 +7424,7 @@ class TraceStats_BufferStats : public ::protozero::Message {
     kReadaheadsSucceededFieldNumber = 7,
     kReadaheadsFailedFieldNumber = 8,
     kAbiViolationsFieldNumber = 9,
+    kTraceWriterPacketLossFieldNumber = 19,
   };
   void set_buffer_size(uint64_t value) {
     AppendVarInt(12, value);
@@ -7299,6 +7479,9 @@ class TraceStats_BufferStats : public ::protozero::Message {
   }
   void set_abi_violations(uint64_t value) {
     AppendVarInt(9, value);
+  }
+  void set_trace_writer_packet_loss(uint64_t value) {
+    AppendVarInt(19, value);
   }
 };
 
@@ -7503,6 +7686,8 @@ class DataSourceConfig_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIE
   uint32_t target_buffer() const { return at<2>().as_uint32(); }
   bool has_trace_duration_ms() const { return at<3>().valid(); }
   uint32_t trace_duration_ms() const { return at<3>().as_uint32(); }
+  bool has_stop_timeout_ms() const { return at<7>().valid(); }
+  uint32_t stop_timeout_ms() const { return at<7>().as_uint32(); }
   bool has_enable_extra_guardrails() const { return at<6>().valid(); }
   bool enable_extra_guardrails() const { return at<6>().as_bool(); }
   bool has_tracing_session_id() const { return at<4>().valid(); }
@@ -7538,6 +7723,7 @@ class DataSourceConfig : public ::protozero::Message {
     kNameFieldNumber = 1,
     kTargetBufferFieldNumber = 2,
     kTraceDurationMsFieldNumber = 3,
+    kStopTimeoutMsFieldNumber = 7,
     kEnableExtraGuardrailsFieldNumber = 6,
     kTracingSessionIdFieldNumber = 4,
     kFtraceConfigFieldNumber = 100,
@@ -7566,6 +7752,9 @@ class DataSourceConfig : public ::protozero::Message {
   }
   void set_trace_duration_ms(uint32_t value) {
     AppendVarInt(3, value);
+  }
+  void set_stop_timeout_ms(uint32_t value) {
+    AppendVarInt(7, value);
   }
   void set_enable_extra_guardrails(bool value) {
     AppendTinyVarInt(6, value);
@@ -8504,7 +8693,7 @@ enum TraceConfig_BufferConfig_FillPolicy : int32_t {
 const TraceConfig_BufferConfig_FillPolicy TraceConfig_BufferConfig_FillPolicy_MIN = TraceConfig_BufferConfig_FillPolicy_UNSPECIFIED;
 const TraceConfig_BufferConfig_FillPolicy TraceConfig_BufferConfig_FillPolicy_MAX = TraceConfig_BufferConfig_FillPolicy_DISCARD;
 
-class TraceConfig_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/25, /*HAS_REPEATED_FIELDS=*/true> {
+class TraceConfig_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/26, /*HAS_REPEATED_FIELDS=*/true> {
  public:
   TraceConfig_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
   explicit TraceConfig_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
@@ -8557,6 +8746,8 @@ class TraceConfig_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID
   int32_t compression_type() const { return at<24>().as_int32(); }
   bool has_incident_report_config() const { return at<25>().valid(); }
   ::protozero::ConstBytes incident_report_config() const { return at<25>().as_bytes(); }
+  bool has_trace_uuid() const { return at<26>().valid(); }
+  ::protozero::ConstBytes trace_uuid() const { return at<26>().as_bytes(); }
 };
 
 class TraceConfig : public ::protozero::Message {
@@ -8587,6 +8778,7 @@ class TraceConfig : public ::protozero::Message {
     kUniqueSessionNameFieldNumber = 22,
     kCompressionTypeFieldNumber = 24,
     kIncidentReportConfigFieldNumber = 25,
+    kTraceUuidFieldNumber = 26,
   };
   using BufferConfig = ::perfetto::protos::pbzero::TraceConfig_BufferConfig;
   using DataSource = ::perfetto::protos::pbzero::TraceConfig_DataSource;
@@ -8695,6 +8887,9 @@ class TraceConfig : public ::protozero::Message {
     return BeginNestedMessage<T>(25);
   }
 
+  void set_trace_uuid(const uint8_t* data, size_t size) {
+    AppendBytes(26, data, size);
+  }
 };
 
 class TraceConfig_IncidentReportConfig_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/4, /*HAS_REPEATED_FIELDS=*/false> {
@@ -9055,22 +9250,22 @@ namespace protos {
 namespace pbzero {
 
 class ClockSnapshot_Clock;
-enum ClockSnapshot_Clock_Type : int32_t;
 
-enum ClockSnapshot_Clock_Type : int32_t {
-  ClockSnapshot_Clock_Type_UNKNOWN = 0,
-  ClockSnapshot_Clock_Type_REALTIME = 1,
-  ClockSnapshot_Clock_Type_REALTIME_COARSE = 2,
-  ClockSnapshot_Clock_Type_MONOTONIC = 3,
-  ClockSnapshot_Clock_Type_MONOTONIC_COARSE = 4,
-  ClockSnapshot_Clock_Type_MONOTONIC_RAW = 5,
-  ClockSnapshot_Clock_Type_BOOTTIME = 6,
-  ClockSnapshot_Clock_Type_PROCESS_CPUTIME = 7,
-  ClockSnapshot_Clock_Type_THREAD_CPUTIME = 8,
+enum ClockSnapshot_Clock_BuiltinClocks : int32_t {
+  ClockSnapshot_Clock_BuiltinClocks_UNKNOWN = 0,
+  ClockSnapshot_Clock_BuiltinClocks_REALTIME = 1,
+  ClockSnapshot_Clock_BuiltinClocks_REALTIME_COARSE = 2,
+  ClockSnapshot_Clock_BuiltinClocks_MONOTONIC = 3,
+  ClockSnapshot_Clock_BuiltinClocks_MONOTONIC_COARSE = 4,
+  ClockSnapshot_Clock_BuiltinClocks_MONOTONIC_RAW = 5,
+  ClockSnapshot_Clock_BuiltinClocks_BOOTTIME = 6,
+  ClockSnapshot_Clock_BuiltinClocks_PROCESS_CPUTIME = 7,
+  ClockSnapshot_Clock_BuiltinClocks_THREAD_CPUTIME = 8,
+  ClockSnapshot_Clock_BuiltinClocks_BUILTIN_CLOCK_MAX_ID = 63,
 };
 
-const ClockSnapshot_Clock_Type ClockSnapshot_Clock_Type_MIN = ClockSnapshot_Clock_Type_UNKNOWN;
-const ClockSnapshot_Clock_Type ClockSnapshot_Clock_Type_MAX = ClockSnapshot_Clock_Type_THREAD_CPUTIME;
+const ClockSnapshot_Clock_BuiltinClocks ClockSnapshot_Clock_BuiltinClocks_MIN = ClockSnapshot_Clock_BuiltinClocks_UNKNOWN;
+const ClockSnapshot_Clock_BuiltinClocks ClockSnapshot_Clock_BuiltinClocks_MAX = ClockSnapshot_Clock_BuiltinClocks_BUILTIN_CLOCK_MAX_ID;
 
 class ClockSnapshot_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/1, /*HAS_REPEATED_FIELDS=*/true> {
  public:
@@ -9099,8 +9294,8 @@ class ClockSnapshot_Clock_Decoder : public ::protozero::TypedProtoDecoder</*MAX_
   ClockSnapshot_Clock_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
   explicit ClockSnapshot_Clock_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
   explicit ClockSnapshot_Clock_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
-  bool has_type() const { return at<1>().valid(); }
-  int32_t type() const { return at<1>().as_int32(); }
+  bool has_clock_id() const { return at<1>().valid(); }
+  uint32_t clock_id() const { return at<1>().as_uint32(); }
   bool has_timestamp() const { return at<2>().valid(); }
   uint64_t timestamp() const { return at<2>().as_uint64(); }
 };
@@ -9109,21 +9304,22 @@ class ClockSnapshot_Clock : public ::protozero::Message {
  public:
   using Decoder = ClockSnapshot_Clock_Decoder;
   enum : int32_t {
-    kTypeFieldNumber = 1,
+    kClockIdFieldNumber = 1,
     kTimestampFieldNumber = 2,
   };
-  using Type = ::perfetto::protos::pbzero::ClockSnapshot_Clock_Type;
-  static const Type UNKNOWN = ClockSnapshot_Clock_Type_UNKNOWN;
-  static const Type REALTIME = ClockSnapshot_Clock_Type_REALTIME;
-  static const Type REALTIME_COARSE = ClockSnapshot_Clock_Type_REALTIME_COARSE;
-  static const Type MONOTONIC = ClockSnapshot_Clock_Type_MONOTONIC;
-  static const Type MONOTONIC_COARSE = ClockSnapshot_Clock_Type_MONOTONIC_COARSE;
-  static const Type MONOTONIC_RAW = ClockSnapshot_Clock_Type_MONOTONIC_RAW;
-  static const Type BOOTTIME = ClockSnapshot_Clock_Type_BOOTTIME;
-  static const Type PROCESS_CPUTIME = ClockSnapshot_Clock_Type_PROCESS_CPUTIME;
-  static const Type THREAD_CPUTIME = ClockSnapshot_Clock_Type_THREAD_CPUTIME;
-  void set_type(::perfetto::protos::pbzero::ClockSnapshot_Clock_Type value) {
-    AppendTinyVarInt(1, value);
+  using BuiltinClocks = ::perfetto::protos::pbzero::ClockSnapshot_Clock_BuiltinClocks;
+  static const BuiltinClocks UNKNOWN = ClockSnapshot_Clock_BuiltinClocks_UNKNOWN;
+  static const BuiltinClocks REALTIME = ClockSnapshot_Clock_BuiltinClocks_REALTIME;
+  static const BuiltinClocks REALTIME_COARSE = ClockSnapshot_Clock_BuiltinClocks_REALTIME_COARSE;
+  static const BuiltinClocks MONOTONIC = ClockSnapshot_Clock_BuiltinClocks_MONOTONIC;
+  static const BuiltinClocks MONOTONIC_COARSE = ClockSnapshot_Clock_BuiltinClocks_MONOTONIC_COARSE;
+  static const BuiltinClocks MONOTONIC_RAW = ClockSnapshot_Clock_BuiltinClocks_MONOTONIC_RAW;
+  static const BuiltinClocks BOOTTIME = ClockSnapshot_Clock_BuiltinClocks_BOOTTIME;
+  static const BuiltinClocks PROCESS_CPUTIME = ClockSnapshot_Clock_BuiltinClocks_PROCESS_CPUTIME;
+  static const BuiltinClocks THREAD_CPUTIME = ClockSnapshot_Clock_BuiltinClocks_THREAD_CPUTIME;
+  static const BuiltinClocks BUILTIN_CLOCK_MAX_ID = ClockSnapshot_Clock_BuiltinClocks_BUILTIN_CLOCK_MAX_ID;
+  void set_clock_id(uint32_t value) {
+    AppendVarInt(1, value);
   }
   void set_timestamp(uint64_t value) {
     AppendVarInt(2, value);
@@ -9298,6 +9494,68 @@ class Utsname : public ::protozero::Message {
 } // Namespace.
 } // Namespace.
 #endif  // Include guard.
+// gen_amalgamated begin header: out/tmp.gen_amalgamated/gen/protos/perfetto/trace/trace_packet_defaults.pbzero.h
+// Autogenerated by the ProtoZero compiler plugin. DO NOT EDIT.
+
+#ifndef PERFETTO_PROTOS_PERFETTO_TRACE_TRACE_PACKET_DEFAULTS_PROTO_H_
+#define PERFETTO_PROTOS_PERFETTO_TRACE_TRACE_PACKET_DEFAULTS_PROTO_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+// gen_amalgamated expanded: #include "perfetto/protozero/proto_decoder.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/message.h"
+
+namespace perfetto {
+namespace protos {
+namespace pbzero {
+
+class TracePacketDefaults_TrackEventDefaults;
+
+class TracePacketDefaults_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/58, /*HAS_REPEATED_FIELDS=*/false> {
+ public:
+  TracePacketDefaults_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit TracePacketDefaults_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit TracePacketDefaults_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_timestamp_clock_id() const { return at<58>().valid(); }
+  uint32_t timestamp_clock_id() const { return at<58>().as_uint32(); }
+  bool has_track_event() const { return at<11>().valid(); }
+  ::protozero::ConstBytes track_event() const { return at<11>().as_bytes(); }
+};
+
+class TracePacketDefaults : public ::protozero::Message {
+ public:
+  using Decoder = TracePacketDefaults_Decoder;
+  enum : int32_t {
+    kTimestampClockIdFieldNumber = 58,
+    kTrackEventFieldNumber = 11,
+  };
+  using TrackEventDefaults = ::perfetto::protos::pbzero::TracePacketDefaults_TrackEventDefaults;
+  void set_timestamp_clock_id(uint32_t value) {
+    AppendVarInt(58, value);
+  }
+  template <typename T = TracePacketDefaults_TrackEventDefaults> T* set_track_event() {
+    return BeginNestedMessage<T>(11);
+  }
+
+};
+
+class TracePacketDefaults_TrackEventDefaults_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/0, /*HAS_REPEATED_FIELDS=*/false> {
+ public:
+  TracePacketDefaults_TrackEventDefaults_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit TracePacketDefaults_TrackEventDefaults_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit TracePacketDefaults_TrackEventDefaults_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+};
+
+class TracePacketDefaults_TrackEventDefaults : public ::protozero::Message {
+ public:
+  using Decoder = TracePacketDefaults_TrackEventDefaults_Decoder;
+};
+
+} // Namespace.
+} // Namespace.
+} // Namespace.
+#endif  // Include guard.
 // gen_amalgamated begin header: out/tmp.gen_amalgamated/gen/protos/perfetto/trace/test_event.pbzero.h
 // Autogenerated by the ProtoZero compiler plugin. DO NOT EDIT.
 
@@ -9376,6 +9634,8 @@ class FtraceEventBundle;
 class FtraceStats;
 class GpuCounterEvent;
 class GpuRenderStageEvent;
+class GraphicsFrameEvent;
+class HeapGraph;
 class InodeFileMap;
 class InternedData;
 class PackagesList;
@@ -9392,9 +9652,19 @@ class SystemInfo;
 class TestEvent;
 class ThreadDescriptor;
 class TraceConfig;
+class TracePacketDefaults;
 class TraceStats;
 class TrackEvent;
 class Trigger;
+
+enum TracePacket_SequenceFlags : int32_t {
+  TracePacket_SequenceFlags_SEQ_UNSPECIFIED = 0,
+  TracePacket_SequenceFlags_SEQ_INCREMENTAL_STATE_CLEARED = 1,
+  TracePacket_SequenceFlags_SEQ_NEEDS_INCREMENTAL_STATE = 2,
+};
+
+const TracePacket_SequenceFlags TracePacket_SequenceFlags_MIN = TracePacket_SequenceFlags_SEQ_UNSPECIFIED;
+const TracePacket_SequenceFlags TracePacket_SequenceFlags_MAX = TracePacket_SequenceFlags_SEQ_NEEDS_INCREMENTAL_STATE;
 
 class TracePacket_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/900, /*HAS_REPEATED_FIELDS=*/false> {
  public:
@@ -9403,6 +9673,8 @@ class TracePacket_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID
   explicit TracePacket_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
   bool has_timestamp() const { return at<8>().valid(); }
   uint64_t timestamp() const { return at<8>().as_uint64(); }
+  bool has_timestamp_clock_id() const { return at<58>().valid(); }
+  uint32_t timestamp_clock_id() const { return at<58>().as_uint32(); }
   bool has_ftrace_events() const { return at<1>().valid(); }
   ::protozero::ConstBytes ftrace_events() const { return at<1>().as_bytes(); }
   bool has_process_tree() const { return at<2>().valid(); }
@@ -9451,6 +9723,10 @@ class TracePacket_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID
   ::protozero::ConstBytes gpu_render_stage_event() const { return at<53>().as_bytes(); }
   bool has_streaming_profile_packet() const { return at<54>().valid(); }
   ::protozero::ConstBytes streaming_profile_packet() const { return at<54>().as_bytes(); }
+  bool has_heap_graph() const { return at<56>().valid(); }
+  ::protozero::ConstBytes heap_graph() const { return at<56>().as_bytes(); }
+  bool has_graphics_frame_event() const { return at<57>().valid(); }
+  ::protozero::ConstBytes graphics_frame_event() const { return at<57>().as_bytes(); }
   bool has_profiled_frame_symbols() const { return at<55>().valid(); }
   ::protozero::ConstBytes profiled_frame_symbols() const { return at<55>().as_bytes(); }
   bool has_process_descriptor() const { return at<43>().valid(); }
@@ -9469,8 +9745,12 @@ class TracePacket_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID
   uint32_t trusted_packet_sequence_id() const { return at<10>().as_uint32(); }
   bool has_interned_data() const { return at<12>().valid(); }
   ::protozero::ConstBytes interned_data() const { return at<12>().as_bytes(); }
+  bool has_sequence_flags() const { return at<13>().valid(); }
+  uint32_t sequence_flags() const { return at<13>().as_uint32(); }
   bool has_incremental_state_cleared() const { return at<41>().valid(); }
   bool incremental_state_cleared() const { return at<41>().as_bool(); }
+  bool has_trace_packet_defaults() const { return at<59>().valid(); }
+  ::protozero::ConstBytes trace_packet_defaults() const { return at<59>().as_bytes(); }
   bool has_previous_packet_dropped() const { return at<42>().valid(); }
   bool previous_packet_dropped() const { return at<42>().as_bool(); }
 };
@@ -9480,6 +9760,7 @@ class TracePacket : public ::protozero::Message {
   using Decoder = TracePacket_Decoder;
   enum : int32_t {
     kTimestampFieldNumber = 8,
+    kTimestampClockIdFieldNumber = 58,
     kFtraceEventsFieldNumber = 1,
     kProcessTreeFieldNumber = 2,
     kProcessStatsFieldNumber = 9,
@@ -9504,6 +9785,8 @@ class TracePacket : public ::protozero::Message {
     kGpuCounterEventFieldNumber = 52,
     kGpuRenderStageEventFieldNumber = 53,
     kStreamingProfilePacketFieldNumber = 54,
+    kHeapGraphFieldNumber = 56,
+    kGraphicsFrameEventFieldNumber = 57,
     kProfiledFrameSymbolsFieldNumber = 55,
     kProcessDescriptorFieldNumber = 43,
     kThreadDescriptorFieldNumber = 44,
@@ -9513,11 +9796,20 @@ class TracePacket : public ::protozero::Message {
     kTrustedUidFieldNumber = 3,
     kTrustedPacketSequenceIdFieldNumber = 10,
     kInternedDataFieldNumber = 12,
+    kSequenceFlagsFieldNumber = 13,
     kIncrementalStateClearedFieldNumber = 41,
+    kTracePacketDefaultsFieldNumber = 59,
     kPreviousPacketDroppedFieldNumber = 42,
   };
+  using SequenceFlags = ::perfetto::protos::pbzero::TracePacket_SequenceFlags;
+  static const SequenceFlags SEQ_UNSPECIFIED = TracePacket_SequenceFlags_SEQ_UNSPECIFIED;
+  static const SequenceFlags SEQ_INCREMENTAL_STATE_CLEARED = TracePacket_SequenceFlags_SEQ_INCREMENTAL_STATE_CLEARED;
+  static const SequenceFlags SEQ_NEEDS_INCREMENTAL_STATE = TracePacket_SequenceFlags_SEQ_NEEDS_INCREMENTAL_STATE;
   void set_timestamp(uint64_t value) {
     AppendVarInt(8, value);
+  }
+  void set_timestamp_clock_id(uint32_t value) {
+    AppendVarInt(58, value);
   }
   template <typename T = FtraceEventBundle> T* set_ftrace_events() {
     return BeginNestedMessage<T>(1);
@@ -9615,6 +9907,14 @@ class TracePacket : public ::protozero::Message {
     return BeginNestedMessage<T>(54);
   }
 
+  template <typename T = HeapGraph> T* set_heap_graph() {
+    return BeginNestedMessage<T>(56);
+  }
+
+  template <typename T = GraphicsFrameEvent> T* set_graphics_frame_event() {
+    return BeginNestedMessage<T>(57);
+  }
+
   template <typename T = ProfiledFrameSymbols> T* set_profiled_frame_symbols() {
     return BeginNestedMessage<T>(55);
   }
@@ -9647,9 +9947,16 @@ class TracePacket : public ::protozero::Message {
     return BeginNestedMessage<T>(12);
   }
 
+  void set_sequence_flags(uint32_t value) {
+    AppendVarInt(13, value);
+  }
   void set_incremental_state_cleared(bool value) {
     AppendTinyVarInt(41, value);
   }
+  template <typename T = TracePacketDefaults> T* set_trace_packet_defaults() {
+    return BeginNestedMessage<T>(59);
+  }
+
   void set_previous_packet_dropped(bool value) {
     AppendTinyVarInt(42, value);
   }
@@ -9999,6 +10306,1112 @@ class GpuRenderStageEvent_ExtraData : public ::protozero::Message {
   // Expects |value| to be at least |size| long.
   void set_value(const char* value, size_t size) {
     AppendBytes(2, value, size);
+  }
+};
+
+} // Namespace.
+} // Namespace.
+} // Namespace.
+#endif  // Include guard.
+// gen_amalgamated begin header: out/tmp.gen_amalgamated/gen/protos/perfetto/trace/interned_data/interned_data.pbzero.h
+// Autogenerated by the ProtoZero compiler plugin. DO NOT EDIT.
+
+#ifndef PERFETTO_PROTOS_PERFETTO_TRACE_INTERNED_DATA_INTERNED_DATA_PROTO_H_
+#define PERFETTO_PROTOS_PERFETTO_TRACE_INTERNED_DATA_INTERNED_DATA_PROTO_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+// gen_amalgamated expanded: #include "perfetto/protozero/proto_decoder.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/message.h"
+
+namespace perfetto {
+namespace protos {
+namespace pbzero {
+
+class Callstack;
+class DebugAnnotationName;
+class EventCategory;
+class Frame;
+class InternedString;
+class LegacyEventName;
+class LogMessageBody;
+class Mapping;
+class ProfiledFrameSymbols;
+class SourceLocation;
+
+class InternedData_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/21, /*HAS_REPEATED_FIELDS=*/true> {
+ public:
+  InternedData_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit InternedData_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit InternedData_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_event_categories() const { return at<1>().valid(); }
+  ::protozero::RepeatedFieldIterator event_categories() const { return GetRepeated(1); }
+  bool has_legacy_event_names() const { return at<2>().valid(); }
+  ::protozero::RepeatedFieldIterator legacy_event_names() const { return GetRepeated(2); }
+  bool has_debug_annotation_names() const { return at<3>().valid(); }
+  ::protozero::RepeatedFieldIterator debug_annotation_names() const { return GetRepeated(3); }
+  bool has_source_locations() const { return at<4>().valid(); }
+  ::protozero::RepeatedFieldIterator source_locations() const { return GetRepeated(4); }
+  bool has_log_message_body() const { return at<20>().valid(); }
+  ::protozero::RepeatedFieldIterator log_message_body() const { return GetRepeated(20); }
+  bool has_build_ids() const { return at<16>().valid(); }
+  ::protozero::RepeatedFieldIterator build_ids() const { return GetRepeated(16); }
+  bool has_mapping_paths() const { return at<17>().valid(); }
+  ::protozero::RepeatedFieldIterator mapping_paths() const { return GetRepeated(17); }
+  bool has_source_paths() const { return at<18>().valid(); }
+  ::protozero::RepeatedFieldIterator source_paths() const { return GetRepeated(18); }
+  bool has_function_names() const { return at<5>().valid(); }
+  ::protozero::RepeatedFieldIterator function_names() const { return GetRepeated(5); }
+  bool has_profiled_frame_symbols() const { return at<21>().valid(); }
+  ::protozero::RepeatedFieldIterator profiled_frame_symbols() const { return GetRepeated(21); }
+  bool has_mappings() const { return at<19>().valid(); }
+  ::protozero::RepeatedFieldIterator mappings() const { return GetRepeated(19); }
+  bool has_frames() const { return at<6>().valid(); }
+  ::protozero::RepeatedFieldIterator frames() const { return GetRepeated(6); }
+  bool has_callstacks() const { return at<7>().valid(); }
+  ::protozero::RepeatedFieldIterator callstacks() const { return GetRepeated(7); }
+};
+
+class InternedData : public ::protozero::Message {
+ public:
+  using Decoder = InternedData_Decoder;
+  enum : int32_t {
+    kEventCategoriesFieldNumber = 1,
+    kLegacyEventNamesFieldNumber = 2,
+    kDebugAnnotationNamesFieldNumber = 3,
+    kSourceLocationsFieldNumber = 4,
+    kLogMessageBodyFieldNumber = 20,
+    kBuildIdsFieldNumber = 16,
+    kMappingPathsFieldNumber = 17,
+    kSourcePathsFieldNumber = 18,
+    kFunctionNamesFieldNumber = 5,
+    kProfiledFrameSymbolsFieldNumber = 21,
+    kMappingsFieldNumber = 19,
+    kFramesFieldNumber = 6,
+    kCallstacksFieldNumber = 7,
+  };
+  template <typename T = EventCategory> T* add_event_categories() {
+    return BeginNestedMessage<T>(1);
+  }
+
+  template <typename T = LegacyEventName> T* add_legacy_event_names() {
+    return BeginNestedMessage<T>(2);
+  }
+
+  template <typename T = DebugAnnotationName> T* add_debug_annotation_names() {
+    return BeginNestedMessage<T>(3);
+  }
+
+  template <typename T = SourceLocation> T* add_source_locations() {
+    return BeginNestedMessage<T>(4);
+  }
+
+  template <typename T = LogMessageBody> T* add_log_message_body() {
+    return BeginNestedMessage<T>(20);
+  }
+
+  template <typename T = InternedString> T* add_build_ids() {
+    return BeginNestedMessage<T>(16);
+  }
+
+  template <typename T = InternedString> T* add_mapping_paths() {
+    return BeginNestedMessage<T>(17);
+  }
+
+  template <typename T = InternedString> T* add_source_paths() {
+    return BeginNestedMessage<T>(18);
+  }
+
+  template <typename T = InternedString> T* add_function_names() {
+    return BeginNestedMessage<T>(5);
+  }
+
+  template <typename T = ProfiledFrameSymbols> T* add_profiled_frame_symbols() {
+    return BeginNestedMessage<T>(21);
+  }
+
+  template <typename T = Mapping> T* add_mappings() {
+    return BeginNestedMessage<T>(19);
+  }
+
+  template <typename T = Frame> T* add_frames() {
+    return BeginNestedMessage<T>(6);
+  }
+
+  template <typename T = Callstack> T* add_callstacks() {
+    return BeginNestedMessage<T>(7);
+  }
+
+};
+
+} // Namespace.
+} // Namespace.
+} // Namespace.
+#endif  // Include guard.
+// gen_amalgamated begin header: out/tmp.gen_amalgamated/gen/protos/perfetto/trace/track_event/debug_annotation.pbzero.h
+// Autogenerated by the ProtoZero compiler plugin. DO NOT EDIT.
+
+#ifndef PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_DEBUG_ANNOTATION_PROTO_H_
+#define PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_DEBUG_ANNOTATION_PROTO_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+// gen_amalgamated expanded: #include "perfetto/protozero/proto_decoder.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/message.h"
+
+namespace perfetto {
+namespace protos {
+namespace pbzero {
+
+class DebugAnnotation_NestedValue;
+enum DebugAnnotation_NestedValue_NestedType : int32_t;
+
+enum DebugAnnotation_NestedValue_NestedType : int32_t {
+  DebugAnnotation_NestedValue_NestedType_UNSPECIFIED = 0,
+  DebugAnnotation_NestedValue_NestedType_DICT = 1,
+  DebugAnnotation_NestedValue_NestedType_ARRAY = 2,
+};
+
+const DebugAnnotation_NestedValue_NestedType DebugAnnotation_NestedValue_NestedType_MIN = DebugAnnotation_NestedValue_NestedType_UNSPECIFIED;
+const DebugAnnotation_NestedValue_NestedType DebugAnnotation_NestedValue_NestedType_MAX = DebugAnnotation_NestedValue_NestedType_ARRAY;
+
+class DebugAnnotationName_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/2, /*HAS_REPEATED_FIELDS=*/false> {
+ public:
+  DebugAnnotationName_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit DebugAnnotationName_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit DebugAnnotationName_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_iid() const { return at<1>().valid(); }
+  uint64_t iid() const { return at<1>().as_uint64(); }
+  bool has_name() const { return at<2>().valid(); }
+  ::protozero::ConstChars name() const { return at<2>().as_string(); }
+};
+
+class DebugAnnotationName : public ::protozero::Message {
+ public:
+  using Decoder = DebugAnnotationName_Decoder;
+  enum : int32_t {
+    kIidFieldNumber = 1,
+    kNameFieldNumber = 2,
+  };
+  void set_iid(uint64_t value) {
+    AppendVarInt(1, value);
+  }
+  void set_name(const char* value) {
+    AppendString(2, value);
+  }
+  // Doesn't check for null terminator.
+  // Expects |value| to be at least |size| long.
+  void set_name(const char* value, size_t size) {
+    AppendBytes(2, value, size);
+  }
+};
+
+class DebugAnnotation_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/9, /*HAS_REPEATED_FIELDS=*/false> {
+ public:
+  DebugAnnotation_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit DebugAnnotation_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit DebugAnnotation_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_name_iid() const { return at<1>().valid(); }
+  uint64_t name_iid() const { return at<1>().as_uint64(); }
+  bool has_bool_value() const { return at<2>().valid(); }
+  bool bool_value() const { return at<2>().as_bool(); }
+  bool has_uint_value() const { return at<3>().valid(); }
+  uint64_t uint_value() const { return at<3>().as_uint64(); }
+  bool has_int_value() const { return at<4>().valid(); }
+  int64_t int_value() const { return at<4>().as_int64(); }
+  bool has_double_value() const { return at<5>().valid(); }
+  double double_value() const { return at<5>().as_double(); }
+  bool has_string_value() const { return at<6>().valid(); }
+  ::protozero::ConstChars string_value() const { return at<6>().as_string(); }
+  bool has_pointer_value() const { return at<7>().valid(); }
+  uint64_t pointer_value() const { return at<7>().as_uint64(); }
+  bool has_nested_value() const { return at<8>().valid(); }
+  ::protozero::ConstBytes nested_value() const { return at<8>().as_bytes(); }
+  bool has_legacy_json_value() const { return at<9>().valid(); }
+  ::protozero::ConstChars legacy_json_value() const { return at<9>().as_string(); }
+};
+
+class DebugAnnotation : public ::protozero::Message {
+ public:
+  using Decoder = DebugAnnotation_Decoder;
+  enum : int32_t {
+    kNameIidFieldNumber = 1,
+    kBoolValueFieldNumber = 2,
+    kUintValueFieldNumber = 3,
+    kIntValueFieldNumber = 4,
+    kDoubleValueFieldNumber = 5,
+    kStringValueFieldNumber = 6,
+    kPointerValueFieldNumber = 7,
+    kNestedValueFieldNumber = 8,
+    kLegacyJsonValueFieldNumber = 9,
+  };
+  using NestedValue = ::perfetto::protos::pbzero::DebugAnnotation_NestedValue;
+  void set_name_iid(uint64_t value) {
+    AppendVarInt(1, value);
+  }
+  void set_bool_value(bool value) {
+    AppendTinyVarInt(2, value);
+  }
+  void set_uint_value(uint64_t value) {
+    AppendVarInt(3, value);
+  }
+  void set_int_value(int64_t value) {
+    AppendVarInt(4, value);
+  }
+  void set_double_value(double value) {
+    AppendFixed(5, value);
+  }
+  void set_string_value(const char* value) {
+    AppendString(6, value);
+  }
+  // Doesn't check for null terminator.
+  // Expects |value| to be at least |size| long.
+  void set_string_value(const char* value, size_t size) {
+    AppendBytes(6, value, size);
+  }
+  void set_pointer_value(uint64_t value) {
+    AppendVarInt(7, value);
+  }
+  template <typename T = DebugAnnotation_NestedValue> T* set_nested_value() {
+    return BeginNestedMessage<T>(8);
+  }
+
+  void set_legacy_json_value(const char* value) {
+    AppendString(9, value);
+  }
+  // Doesn't check for null terminator.
+  // Expects |value| to be at least |size| long.
+  void set_legacy_json_value(const char* value, size_t size) {
+    AppendBytes(9, value, size);
+  }
+};
+
+class DebugAnnotation_NestedValue_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/8, /*HAS_REPEATED_FIELDS=*/true> {
+ public:
+  DebugAnnotation_NestedValue_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit DebugAnnotation_NestedValue_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit DebugAnnotation_NestedValue_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_nested_type() const { return at<1>().valid(); }
+  int32_t nested_type() const { return at<1>().as_int32(); }
+  bool has_dict_keys() const { return at<2>().valid(); }
+  ::protozero::RepeatedFieldIterator dict_keys() const { return GetRepeated(2); }
+  bool has_dict_values() const { return at<3>().valid(); }
+  ::protozero::RepeatedFieldIterator dict_values() const { return GetRepeated(3); }
+  bool has_array_values() const { return at<4>().valid(); }
+  ::protozero::RepeatedFieldIterator array_values() const { return GetRepeated(4); }
+  bool has_int_value() const { return at<5>().valid(); }
+  int64_t int_value() const { return at<5>().as_int64(); }
+  bool has_double_value() const { return at<6>().valid(); }
+  double double_value() const { return at<6>().as_double(); }
+  bool has_bool_value() const { return at<7>().valid(); }
+  bool bool_value() const { return at<7>().as_bool(); }
+  bool has_string_value() const { return at<8>().valid(); }
+  ::protozero::ConstChars string_value() const { return at<8>().as_string(); }
+};
+
+class DebugAnnotation_NestedValue : public ::protozero::Message {
+ public:
+  using Decoder = DebugAnnotation_NestedValue_Decoder;
+  enum : int32_t {
+    kNestedTypeFieldNumber = 1,
+    kDictKeysFieldNumber = 2,
+    kDictValuesFieldNumber = 3,
+    kArrayValuesFieldNumber = 4,
+    kIntValueFieldNumber = 5,
+    kDoubleValueFieldNumber = 6,
+    kBoolValueFieldNumber = 7,
+    kStringValueFieldNumber = 8,
+  };
+  using NestedType = ::perfetto::protos::pbzero::DebugAnnotation_NestedValue_NestedType;
+  static const NestedType UNSPECIFIED = DebugAnnotation_NestedValue_NestedType_UNSPECIFIED;
+  static const NestedType DICT = DebugAnnotation_NestedValue_NestedType_DICT;
+  static const NestedType ARRAY = DebugAnnotation_NestedValue_NestedType_ARRAY;
+  void set_nested_type(::perfetto::protos::pbzero::DebugAnnotation_NestedValue_NestedType value) {
+    AppendTinyVarInt(1, value);
+  }
+  void add_dict_keys(const char* value) {
+    AppendString(2, value);
+  }
+  // Doesn't check for null terminator.
+  // Expects |value| to be at least |size| long.
+  void add_dict_keys(const char* value, size_t size) {
+    AppendBytes(2, value, size);
+  }
+  template <typename T = DebugAnnotation_NestedValue> T* add_dict_values() {
+    return BeginNestedMessage<T>(3);
+  }
+
+  template <typename T = DebugAnnotation_NestedValue> T* add_array_values() {
+    return BeginNestedMessage<T>(4);
+  }
+
+  void set_int_value(int64_t value) {
+    AppendVarInt(5, value);
+  }
+  void set_double_value(double value) {
+    AppendFixed(6, value);
+  }
+  void set_bool_value(bool value) {
+    AppendTinyVarInt(7, value);
+  }
+  void set_string_value(const char* value) {
+    AppendString(8, value);
+  }
+  // Doesn't check for null terminator.
+  // Expects |value| to be at least |size| long.
+  void set_string_value(const char* value, size_t size) {
+    AppendBytes(8, value, size);
+  }
+};
+
+} // Namespace.
+} // Namespace.
+} // Namespace.
+#endif  // Include guard.
+// gen_amalgamated begin header: out/tmp.gen_amalgamated/gen/protos/perfetto/trace/track_event/process_descriptor.pbzero.h
+// Autogenerated by the ProtoZero compiler plugin. DO NOT EDIT.
+
+#ifndef PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_PROCESS_DESCRIPTOR_PROTO_H_
+#define PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_PROCESS_DESCRIPTOR_PROTO_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+// gen_amalgamated expanded: #include "perfetto/protozero/proto_decoder.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/message.h"
+
+namespace perfetto {
+namespace protos {
+namespace pbzero {
+
+enum ProcessDescriptor_ChromeProcessType : int32_t;
+
+enum ProcessDescriptor_ChromeProcessType : int32_t {
+  ProcessDescriptor_ChromeProcessType_PROCESS_UNSPECIFIED = 0,
+  ProcessDescriptor_ChromeProcessType_PROCESS_BROWSER = 1,
+  ProcessDescriptor_ChromeProcessType_PROCESS_RENDERER = 2,
+  ProcessDescriptor_ChromeProcessType_PROCESS_UTILITY = 3,
+  ProcessDescriptor_ChromeProcessType_PROCESS_ZYGOTE = 4,
+  ProcessDescriptor_ChromeProcessType_PROCESS_SANDBOX_HELPER = 5,
+  ProcessDescriptor_ChromeProcessType_PROCESS_GPU = 6,
+  ProcessDescriptor_ChromeProcessType_PROCESS_PPAPI_PLUGIN = 7,
+  ProcessDescriptor_ChromeProcessType_PROCESS_PPAPI_BROKER = 8,
+};
+
+const ProcessDescriptor_ChromeProcessType ProcessDescriptor_ChromeProcessType_MIN = ProcessDescriptor_ChromeProcessType_PROCESS_UNSPECIFIED;
+const ProcessDescriptor_ChromeProcessType ProcessDescriptor_ChromeProcessType_MAX = ProcessDescriptor_ChromeProcessType_PROCESS_PPAPI_BROKER;
+
+class ProcessDescriptor_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/5, /*HAS_REPEATED_FIELDS=*/true> {
+ public:
+  ProcessDescriptor_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit ProcessDescriptor_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit ProcessDescriptor_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_pid() const { return at<1>().valid(); }
+  int32_t pid() const { return at<1>().as_int32(); }
+  bool has_cmdline() const { return at<2>().valid(); }
+  ::protozero::RepeatedFieldIterator cmdline() const { return GetRepeated(2); }
+  bool has_legacy_sort_index() const { return at<3>().valid(); }
+  int32_t legacy_sort_index() const { return at<3>().as_int32(); }
+  bool has_chrome_process_type() const { return at<4>().valid(); }
+  int32_t chrome_process_type() const { return at<4>().as_int32(); }
+  bool has_process_priority() const { return at<5>().valid(); }
+  int32_t process_priority() const { return at<5>().as_int32(); }
+};
+
+class ProcessDescriptor : public ::protozero::Message {
+ public:
+  using Decoder = ProcessDescriptor_Decoder;
+  enum : int32_t {
+    kPidFieldNumber = 1,
+    kCmdlineFieldNumber = 2,
+    kLegacySortIndexFieldNumber = 3,
+    kChromeProcessTypeFieldNumber = 4,
+    kProcessPriorityFieldNumber = 5,
+  };
+  using ChromeProcessType = ::perfetto::protos::pbzero::ProcessDescriptor_ChromeProcessType;
+  static const ChromeProcessType PROCESS_UNSPECIFIED = ProcessDescriptor_ChromeProcessType_PROCESS_UNSPECIFIED;
+  static const ChromeProcessType PROCESS_BROWSER = ProcessDescriptor_ChromeProcessType_PROCESS_BROWSER;
+  static const ChromeProcessType PROCESS_RENDERER = ProcessDescriptor_ChromeProcessType_PROCESS_RENDERER;
+  static const ChromeProcessType PROCESS_UTILITY = ProcessDescriptor_ChromeProcessType_PROCESS_UTILITY;
+  static const ChromeProcessType PROCESS_ZYGOTE = ProcessDescriptor_ChromeProcessType_PROCESS_ZYGOTE;
+  static const ChromeProcessType PROCESS_SANDBOX_HELPER = ProcessDescriptor_ChromeProcessType_PROCESS_SANDBOX_HELPER;
+  static const ChromeProcessType PROCESS_GPU = ProcessDescriptor_ChromeProcessType_PROCESS_GPU;
+  static const ChromeProcessType PROCESS_PPAPI_PLUGIN = ProcessDescriptor_ChromeProcessType_PROCESS_PPAPI_PLUGIN;
+  static const ChromeProcessType PROCESS_PPAPI_BROKER = ProcessDescriptor_ChromeProcessType_PROCESS_PPAPI_BROKER;
+  void set_pid(int32_t value) {
+    AppendVarInt(1, value);
+  }
+  void add_cmdline(const char* value) {
+    AppendString(2, value);
+  }
+  // Doesn't check for null terminator.
+  // Expects |value| to be at least |size| long.
+  void add_cmdline(const char* value, size_t size) {
+    AppendBytes(2, value, size);
+  }
+  void set_legacy_sort_index(int32_t value) {
+    AppendVarInt(3, value);
+  }
+  void set_chrome_process_type(::perfetto::protos::pbzero::ProcessDescriptor_ChromeProcessType value) {
+    AppendTinyVarInt(4, value);
+  }
+  void set_process_priority(int32_t value) {
+    AppendVarInt(5, value);
+  }
+};
+
+} // Namespace.
+} // Namespace.
+} // Namespace.
+#endif  // Include guard.
+// gen_amalgamated begin header: out/tmp.gen_amalgamated/gen/protos/perfetto/trace/track_event/source_location.pbzero.h
+// Autogenerated by the ProtoZero compiler plugin. DO NOT EDIT.
+
+#ifndef PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_SOURCE_LOCATION_PROTO_H_
+#define PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_SOURCE_LOCATION_PROTO_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+// gen_amalgamated expanded: #include "perfetto/protozero/proto_decoder.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/message.h"
+
+namespace perfetto {
+namespace protos {
+namespace pbzero {
+
+
+class SourceLocation_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/4, /*HAS_REPEATED_FIELDS=*/false> {
+ public:
+  SourceLocation_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit SourceLocation_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit SourceLocation_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_iid() const { return at<1>().valid(); }
+  uint64_t iid() const { return at<1>().as_uint64(); }
+  bool has_file_name() const { return at<2>().valid(); }
+  ::protozero::ConstChars file_name() const { return at<2>().as_string(); }
+  bool has_function_name() const { return at<3>().valid(); }
+  ::protozero::ConstChars function_name() const { return at<3>().as_string(); }
+  bool has_line_number() const { return at<4>().valid(); }
+  uint32_t line_number() const { return at<4>().as_uint32(); }
+};
+
+class SourceLocation : public ::protozero::Message {
+ public:
+  using Decoder = SourceLocation_Decoder;
+  enum : int32_t {
+    kIidFieldNumber = 1,
+    kFileNameFieldNumber = 2,
+    kFunctionNameFieldNumber = 3,
+    kLineNumberFieldNumber = 4,
+  };
+  void set_iid(uint64_t value) {
+    AppendVarInt(1, value);
+  }
+  void set_file_name(const char* value) {
+    AppendString(2, value);
+  }
+  // Doesn't check for null terminator.
+  // Expects |value| to be at least |size| long.
+  void set_file_name(const char* value, size_t size) {
+    AppendBytes(2, value, size);
+  }
+  void set_function_name(const char* value) {
+    AppendString(3, value);
+  }
+  // Doesn't check for null terminator.
+  // Expects |value| to be at least |size| long.
+  void set_function_name(const char* value, size_t size) {
+    AppendBytes(3, value, size);
+  }
+  void set_line_number(uint32_t value) {
+    AppendVarInt(4, value);
+  }
+};
+
+} // Namespace.
+} // Namespace.
+} // Namespace.
+#endif  // Include guard.
+// gen_amalgamated begin header: out/tmp.gen_amalgamated/gen/protos/perfetto/trace/track_event/log_message.pbzero.h
+// Autogenerated by the ProtoZero compiler plugin. DO NOT EDIT.
+
+#ifndef PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_LOG_MESSAGE_PROTO_H_
+#define PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_LOG_MESSAGE_PROTO_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+// gen_amalgamated expanded: #include "perfetto/protozero/proto_decoder.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/message.h"
+
+namespace perfetto {
+namespace protos {
+namespace pbzero {
+
+
+class LogMessageBody_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/2, /*HAS_REPEATED_FIELDS=*/false> {
+ public:
+  LogMessageBody_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit LogMessageBody_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit LogMessageBody_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_iid() const { return at<1>().valid(); }
+  uint64_t iid() const { return at<1>().as_uint64(); }
+  bool has_body() const { return at<2>().valid(); }
+  ::protozero::ConstChars body() const { return at<2>().as_string(); }
+};
+
+class LogMessageBody : public ::protozero::Message {
+ public:
+  using Decoder = LogMessageBody_Decoder;
+  enum : int32_t {
+    kIidFieldNumber = 1,
+    kBodyFieldNumber = 2,
+  };
+  void set_iid(uint64_t value) {
+    AppendVarInt(1, value);
+  }
+  void set_body(const char* value) {
+    AppendString(2, value);
+  }
+  // Doesn't check for null terminator.
+  // Expects |value| to be at least |size| long.
+  void set_body(const char* value, size_t size) {
+    AppendBytes(2, value, size);
+  }
+};
+
+class LogMessage_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/2, /*HAS_REPEATED_FIELDS=*/false> {
+ public:
+  LogMessage_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit LogMessage_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit LogMessage_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_source_location_iid() const { return at<1>().valid(); }
+  uint64_t source_location_iid() const { return at<1>().as_uint64(); }
+  bool has_body_iid() const { return at<2>().valid(); }
+  uint64_t body_iid() const { return at<2>().as_uint64(); }
+};
+
+class LogMessage : public ::protozero::Message {
+ public:
+  using Decoder = LogMessage_Decoder;
+  enum : int32_t {
+    kSourceLocationIidFieldNumber = 1,
+    kBodyIidFieldNumber = 2,
+  };
+  void set_source_location_iid(uint64_t value) {
+    AppendVarInt(1, value);
+  }
+  void set_body_iid(uint64_t value) {
+    AppendVarInt(2, value);
+  }
+};
+
+} // Namespace.
+} // Namespace.
+} // Namespace.
+#endif  // Include guard.
+// gen_amalgamated begin header: out/tmp.gen_amalgamated/gen/protos/perfetto/trace/track_event/task_execution.pbzero.h
+// Autogenerated by the ProtoZero compiler plugin. DO NOT EDIT.
+
+#ifndef PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_TASK_EXECUTION_PROTO_H_
+#define PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_TASK_EXECUTION_PROTO_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+// gen_amalgamated expanded: #include "perfetto/protozero/proto_decoder.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/message.h"
+
+namespace perfetto {
+namespace protos {
+namespace pbzero {
+
+
+class TaskExecution_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/1, /*HAS_REPEATED_FIELDS=*/false> {
+ public:
+  TaskExecution_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit TaskExecution_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit TaskExecution_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_posted_from_iid() const { return at<1>().valid(); }
+  uint64_t posted_from_iid() const { return at<1>().as_uint64(); }
+};
+
+class TaskExecution : public ::protozero::Message {
+ public:
+  using Decoder = TaskExecution_Decoder;
+  enum : int32_t {
+    kPostedFromIidFieldNumber = 1,
+  };
+  void set_posted_from_iid(uint64_t value) {
+    AppendVarInt(1, value);
+  }
+};
+
+} // Namespace.
+} // Namespace.
+} // Namespace.
+#endif  // Include guard.
+// gen_amalgamated begin header: out/tmp.gen_amalgamated/gen/protos/perfetto/trace/track_event/thread_descriptor.pbzero.h
+// Autogenerated by the ProtoZero compiler plugin. DO NOT EDIT.
+
+#ifndef PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_THREAD_DESCRIPTOR_PROTO_H_
+#define PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_THREAD_DESCRIPTOR_PROTO_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+// gen_amalgamated expanded: #include "perfetto/protozero/proto_decoder.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/message.h"
+
+namespace perfetto {
+namespace protos {
+namespace pbzero {
+
+enum ThreadDescriptor_ChromeThreadType : int32_t;
+
+enum ThreadDescriptor_ChromeThreadType : int32_t {
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_UNSPECIFIED = 0,
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_MAIN = 1,
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_IO = 2,
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_POOL_BG_WORKER = 3,
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_POOL_FG_WORKER = 4,
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_POOL_FB_BLOCKING = 5,
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_POOL_BG_BLOCKING = 6,
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_POOL_SERVICE = 7,
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_COMPOSITOR = 8,
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_VIZ_COMPOSITOR = 9,
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_COMPOSITOR_WORKER = 10,
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_SERVICE_WORKER = 11,
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_MEMORY_INFRA = 50,
+  ThreadDescriptor_ChromeThreadType_CHROME_THREAD_SAMPLING_PROFILER = 51,
+};
+
+const ThreadDescriptor_ChromeThreadType ThreadDescriptor_ChromeThreadType_MIN = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_UNSPECIFIED;
+const ThreadDescriptor_ChromeThreadType ThreadDescriptor_ChromeThreadType_MAX = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_SAMPLING_PROFILER;
+
+class ThreadDescriptor_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/8, /*HAS_REPEATED_FIELDS=*/false> {
+ public:
+  ThreadDescriptor_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit ThreadDescriptor_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit ThreadDescriptor_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_pid() const { return at<1>().valid(); }
+  int32_t pid() const { return at<1>().as_int32(); }
+  bool has_tid() const { return at<2>().valid(); }
+  int32_t tid() const { return at<2>().as_int32(); }
+  bool has_legacy_sort_index() const { return at<3>().valid(); }
+  int32_t legacy_sort_index() const { return at<3>().as_int32(); }
+  bool has_chrome_thread_type() const { return at<4>().valid(); }
+  int32_t chrome_thread_type() const { return at<4>().as_int32(); }
+  bool has_thread_name() const { return at<5>().valid(); }
+  ::protozero::ConstChars thread_name() const { return at<5>().as_string(); }
+  bool has_reference_timestamp_us() const { return at<6>().valid(); }
+  int64_t reference_timestamp_us() const { return at<6>().as_int64(); }
+  bool has_reference_thread_time_us() const { return at<7>().valid(); }
+  int64_t reference_thread_time_us() const { return at<7>().as_int64(); }
+  bool has_reference_thread_instruction_count() const { return at<8>().valid(); }
+  int64_t reference_thread_instruction_count() const { return at<8>().as_int64(); }
+};
+
+class ThreadDescriptor : public ::protozero::Message {
+ public:
+  using Decoder = ThreadDescriptor_Decoder;
+  enum : int32_t {
+    kPidFieldNumber = 1,
+    kTidFieldNumber = 2,
+    kLegacySortIndexFieldNumber = 3,
+    kChromeThreadTypeFieldNumber = 4,
+    kThreadNameFieldNumber = 5,
+    kReferenceTimestampUsFieldNumber = 6,
+    kReferenceThreadTimeUsFieldNumber = 7,
+    kReferenceThreadInstructionCountFieldNumber = 8,
+  };
+  using ChromeThreadType = ::perfetto::protos::pbzero::ThreadDescriptor_ChromeThreadType;
+  static const ChromeThreadType CHROME_THREAD_UNSPECIFIED = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_UNSPECIFIED;
+  static const ChromeThreadType CHROME_THREAD_MAIN = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_MAIN;
+  static const ChromeThreadType CHROME_THREAD_IO = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_IO;
+  static const ChromeThreadType CHROME_THREAD_POOL_BG_WORKER = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_POOL_BG_WORKER;
+  static const ChromeThreadType CHROME_THREAD_POOL_FG_WORKER = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_POOL_FG_WORKER;
+  static const ChromeThreadType CHROME_THREAD_POOL_FB_BLOCKING = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_POOL_FB_BLOCKING;
+  static const ChromeThreadType CHROME_THREAD_POOL_BG_BLOCKING = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_POOL_BG_BLOCKING;
+  static const ChromeThreadType CHROME_THREAD_POOL_SERVICE = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_POOL_SERVICE;
+  static const ChromeThreadType CHROME_THREAD_COMPOSITOR = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_COMPOSITOR;
+  static const ChromeThreadType CHROME_THREAD_VIZ_COMPOSITOR = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_VIZ_COMPOSITOR;
+  static const ChromeThreadType CHROME_THREAD_COMPOSITOR_WORKER = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_COMPOSITOR_WORKER;
+  static const ChromeThreadType CHROME_THREAD_SERVICE_WORKER = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_SERVICE_WORKER;
+  static const ChromeThreadType CHROME_THREAD_MEMORY_INFRA = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_MEMORY_INFRA;
+  static const ChromeThreadType CHROME_THREAD_SAMPLING_PROFILER = ThreadDescriptor_ChromeThreadType_CHROME_THREAD_SAMPLING_PROFILER;
+  void set_pid(int32_t value) {
+    AppendVarInt(1, value);
+  }
+  void set_tid(int32_t value) {
+    AppendVarInt(2, value);
+  }
+  void set_legacy_sort_index(int32_t value) {
+    AppendVarInt(3, value);
+  }
+  void set_chrome_thread_type(::perfetto::protos::pbzero::ThreadDescriptor_ChromeThreadType value) {
+    AppendTinyVarInt(4, value);
+  }
+  void set_thread_name(const char* value) {
+    AppendString(5, value);
+  }
+  // Doesn't check for null terminator.
+  // Expects |value| to be at least |size| long.
+  void set_thread_name(const char* value, size_t size) {
+    AppendBytes(5, value, size);
+  }
+  void set_reference_timestamp_us(int64_t value) {
+    AppendVarInt(6, value);
+  }
+  void set_reference_thread_time_us(int64_t value) {
+    AppendVarInt(7, value);
+  }
+  void set_reference_thread_instruction_count(int64_t value) {
+    AppendVarInt(8, value);
+  }
+};
+
+} // Namespace.
+} // Namespace.
+} // Namespace.
+#endif  // Include guard.
+// gen_amalgamated begin header: out/tmp.gen_amalgamated/gen/protos/perfetto/trace/track_event/track_event.pbzero.h
+// Autogenerated by the ProtoZero compiler plugin. DO NOT EDIT.
+
+#ifndef PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_TRACK_EVENT_PROTO_H_
+#define PERFETTO_PROTOS_PERFETTO_TRACE_TRACK_EVENT_TRACK_EVENT_PROTO_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+// gen_amalgamated expanded: #include "perfetto/protozero/proto_decoder.h"
+// gen_amalgamated expanded: #include "perfetto/protozero/message.h"
+
+namespace perfetto {
+namespace protos {
+namespace pbzero {
+
+class DebugAnnotation;
+class LogMessage;
+class TaskExecution;
+class TrackEvent_LegacyEvent;
+enum TrackEvent_LegacyEvent_FlowDirection : int32_t;
+enum TrackEvent_LegacyEvent_InstantEventScope : int32_t;
+enum TrackEvent_Type : int32_t;
+
+enum TrackEvent_Type : int32_t {
+  TrackEvent_Type_TYPE_UNSPECIFIED = 0,
+  TrackEvent_Type_TYPE_SLICE_BEGIN = 1,
+  TrackEvent_Type_TYPE_SLICE_END = 2,
+  TrackEvent_Type_TYPE_INSTANT = 3,
+};
+
+const TrackEvent_Type TrackEvent_Type_MIN = TrackEvent_Type_TYPE_UNSPECIFIED;
+const TrackEvent_Type TrackEvent_Type_MAX = TrackEvent_Type_TYPE_INSTANT;
+
+enum TrackEvent_LegacyEvent_FlowDirection : int32_t {
+  TrackEvent_LegacyEvent_FlowDirection_FLOW_UNSPECIFIED = 0,
+  TrackEvent_LegacyEvent_FlowDirection_FLOW_IN = 1,
+  TrackEvent_LegacyEvent_FlowDirection_FLOW_OUT = 2,
+  TrackEvent_LegacyEvent_FlowDirection_FLOW_INOUT = 3,
+};
+
+const TrackEvent_LegacyEvent_FlowDirection TrackEvent_LegacyEvent_FlowDirection_MIN = TrackEvent_LegacyEvent_FlowDirection_FLOW_UNSPECIFIED;
+const TrackEvent_LegacyEvent_FlowDirection TrackEvent_LegacyEvent_FlowDirection_MAX = TrackEvent_LegacyEvent_FlowDirection_FLOW_INOUT;
+
+enum TrackEvent_LegacyEvent_InstantEventScope : int32_t {
+  TrackEvent_LegacyEvent_InstantEventScope_SCOPE_UNSPECIFIED = 0,
+  TrackEvent_LegacyEvent_InstantEventScope_SCOPE_GLOBAL = 1,
+  TrackEvent_LegacyEvent_InstantEventScope_SCOPE_PROCESS = 2,
+  TrackEvent_LegacyEvent_InstantEventScope_SCOPE_THREAD = 3,
+};
+
+const TrackEvent_LegacyEvent_InstantEventScope TrackEvent_LegacyEvent_InstantEventScope_MIN = TrackEvent_LegacyEvent_InstantEventScope_SCOPE_UNSPECIFIED;
+const TrackEvent_LegacyEvent_InstantEventScope TrackEvent_LegacyEvent_InstantEventScope_MAX = TrackEvent_LegacyEvent_InstantEventScope_SCOPE_THREAD;
+
+class LegacyEventName_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/2, /*HAS_REPEATED_FIELDS=*/false> {
+ public:
+  LegacyEventName_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit LegacyEventName_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit LegacyEventName_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_iid() const { return at<1>().valid(); }
+  uint64_t iid() const { return at<1>().as_uint64(); }
+  bool has_name() const { return at<2>().valid(); }
+  ::protozero::ConstChars name() const { return at<2>().as_string(); }
+};
+
+class LegacyEventName : public ::protozero::Message {
+ public:
+  using Decoder = LegacyEventName_Decoder;
+  enum : int32_t {
+    kIidFieldNumber = 1,
+    kNameFieldNumber = 2,
+  };
+  void set_iid(uint64_t value) {
+    AppendVarInt(1, value);
+  }
+  void set_name(const char* value) {
+    AppendString(2, value);
+  }
+  // Doesn't check for null terminator.
+  // Expects |value| to be at least |size| long.
+  void set_name(const char* value, size_t size) {
+    AppendBytes(2, value, size);
+  }
+};
+
+class EventCategory_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/2, /*HAS_REPEATED_FIELDS=*/false> {
+ public:
+  EventCategory_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit EventCategory_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit EventCategory_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_iid() const { return at<1>().valid(); }
+  uint64_t iid() const { return at<1>().as_uint64(); }
+  bool has_name() const { return at<2>().valid(); }
+  ::protozero::ConstChars name() const { return at<2>().as_string(); }
+};
+
+class EventCategory : public ::protozero::Message {
+ public:
+  using Decoder = EventCategory_Decoder;
+  enum : int32_t {
+    kIidFieldNumber = 1,
+    kNameFieldNumber = 2,
+  };
+  void set_iid(uint64_t value) {
+    AppendVarInt(1, value);
+  }
+  void set_name(const char* value) {
+    AppendString(2, value);
+  }
+  // Doesn't check for null terminator.
+  // Expects |value| to be at least |size| long.
+  void set_name(const char* value, size_t size) {
+    AppendBytes(2, value, size);
+  }
+};
+
+class TrackEvent_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/21, /*HAS_REPEATED_FIELDS=*/true> {
+ public:
+  TrackEvent_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit TrackEvent_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit TrackEvent_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_timestamp_delta_us() const { return at<1>().valid(); }
+  int64_t timestamp_delta_us() const { return at<1>().as_int64(); }
+  bool has_timestamp_absolute_us() const { return at<16>().valid(); }
+  int64_t timestamp_absolute_us() const { return at<16>().as_int64(); }
+  bool has_thread_time_delta_us() const { return at<2>().valid(); }
+  int64_t thread_time_delta_us() const { return at<2>().as_int64(); }
+  bool has_thread_time_absolute_us() const { return at<17>().valid(); }
+  int64_t thread_time_absolute_us() const { return at<17>().as_int64(); }
+  bool has_thread_instruction_count_delta() const { return at<8>().valid(); }
+  int64_t thread_instruction_count_delta() const { return at<8>().as_int64(); }
+  bool has_thread_instruction_count_absolute() const { return at<20>().valid(); }
+  int64_t thread_instruction_count_absolute() const { return at<20>().as_int64(); }
+  bool has_category_iids() const { return at<3>().valid(); }
+  ::protozero::RepeatedFieldIterator category_iids() const { return GetRepeated(3); }
+  bool has_type() const { return at<9>().valid(); }
+  int32_t type() const { return at<9>().as_int32(); }
+  bool has_debug_annotations() const { return at<4>().valid(); }
+  ::protozero::RepeatedFieldIterator debug_annotations() const { return GetRepeated(4); }
+  bool has_task_execution() const { return at<5>().valid(); }
+  ::protozero::ConstBytes task_execution() const { return at<5>().as_bytes(); }
+  bool has_log_message() const { return at<21>().valid(); }
+  ::protozero::ConstBytes log_message() const { return at<21>().as_bytes(); }
+  bool has_legacy_event() const { return at<6>().valid(); }
+  ::protozero::ConstBytes legacy_event() const { return at<6>().as_bytes(); }
+};
+
+class TrackEvent : public ::protozero::Message {
+ public:
+  using Decoder = TrackEvent_Decoder;
+  enum : int32_t {
+    kTimestampDeltaUsFieldNumber = 1,
+    kTimestampAbsoluteUsFieldNumber = 16,
+    kThreadTimeDeltaUsFieldNumber = 2,
+    kThreadTimeAbsoluteUsFieldNumber = 17,
+    kThreadInstructionCountDeltaFieldNumber = 8,
+    kThreadInstructionCountAbsoluteFieldNumber = 20,
+    kCategoryIidsFieldNumber = 3,
+    kTypeFieldNumber = 9,
+    kDebugAnnotationsFieldNumber = 4,
+    kTaskExecutionFieldNumber = 5,
+    kLogMessageFieldNumber = 21,
+    kLegacyEventFieldNumber = 6,
+  };
+  using LegacyEvent = ::perfetto::protos::pbzero::TrackEvent_LegacyEvent;
+  using Type = ::perfetto::protos::pbzero::TrackEvent_Type;
+  static const Type TYPE_UNSPECIFIED = TrackEvent_Type_TYPE_UNSPECIFIED;
+  static const Type TYPE_SLICE_BEGIN = TrackEvent_Type_TYPE_SLICE_BEGIN;
+  static const Type TYPE_SLICE_END = TrackEvent_Type_TYPE_SLICE_END;
+  static const Type TYPE_INSTANT = TrackEvent_Type_TYPE_INSTANT;
+  void set_timestamp_delta_us(int64_t value) {
+    AppendVarInt(1, value);
+  }
+  void set_timestamp_absolute_us(int64_t value) {
+    AppendVarInt(16, value);
+  }
+  void set_thread_time_delta_us(int64_t value) {
+    AppendVarInt(2, value);
+  }
+  void set_thread_time_absolute_us(int64_t value) {
+    AppendVarInt(17, value);
+  }
+  void set_thread_instruction_count_delta(int64_t value) {
+    AppendVarInt(8, value);
+  }
+  void set_thread_instruction_count_absolute(int64_t value) {
+    AppendVarInt(20, value);
+  }
+  void add_category_iids(uint64_t value) {
+    AppendVarInt(3, value);
+  }
+  void set_type(::perfetto::protos::pbzero::TrackEvent_Type value) {
+    AppendTinyVarInt(9, value);
+  }
+  template <typename T = DebugAnnotation> T* add_debug_annotations() {
+    return BeginNestedMessage<T>(4);
+  }
+
+  template <typename T = TaskExecution> T* set_task_execution() {
+    return BeginNestedMessage<T>(5);
+  }
+
+  template <typename T = LogMessage> T* set_log_message() {
+    return BeginNestedMessage<T>(21);
+  }
+
+  template <typename T = TrackEvent_LegacyEvent> T* set_legacy_event() {
+    return BeginNestedMessage<T>(6);
+  }
+
+};
+
+class TrackEvent_LegacyEvent_Decoder : public ::protozero::TypedProtoDecoder</*MAX_FIELD_ID=*/19, /*HAS_REPEATED_FIELDS=*/false> {
+ public:
+  TrackEvent_LegacyEvent_Decoder(const uint8_t* data, size_t len) : TypedProtoDecoder(data, len) {}
+  explicit TrackEvent_LegacyEvent_Decoder(const std::string& raw) : TypedProtoDecoder(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) {}
+  explicit TrackEvent_LegacyEvent_Decoder(const ::protozero::ConstBytes& raw) : TypedProtoDecoder(raw.data, raw.size) {}
+  bool has_name_iid() const { return at<1>().valid(); }
+  uint64_t name_iid() const { return at<1>().as_uint64(); }
+  bool has_phase() const { return at<2>().valid(); }
+  int32_t phase() const { return at<2>().as_int32(); }
+  bool has_duration_us() const { return at<3>().valid(); }
+  int64_t duration_us() const { return at<3>().as_int64(); }
+  bool has_thread_duration_us() const { return at<4>().valid(); }
+  int64_t thread_duration_us() const { return at<4>().as_int64(); }
+  bool has_thread_instruction_delta() const { return at<15>().valid(); }
+  int64_t thread_instruction_delta() const { return at<15>().as_int64(); }
+  bool has_unscoped_id() const { return at<6>().valid(); }
+  uint64_t unscoped_id() const { return at<6>().as_uint64(); }
+  bool has_local_id() const { return at<10>().valid(); }
+  uint64_t local_id() const { return at<10>().as_uint64(); }
+  bool has_global_id() const { return at<11>().valid(); }
+  uint64_t global_id() const { return at<11>().as_uint64(); }
+  bool has_id_scope() const { return at<7>().valid(); }
+  ::protozero::ConstChars id_scope() const { return at<7>().as_string(); }
+  bool has_use_async_tts() const { return at<9>().valid(); }
+  bool use_async_tts() const { return at<9>().as_bool(); }
+  bool has_bind_id() const { return at<8>().valid(); }
+  uint64_t bind_id() const { return at<8>().as_uint64(); }
+  bool has_bind_to_enclosing() const { return at<12>().valid(); }
+  bool bind_to_enclosing() const { return at<12>().as_bool(); }
+  bool has_flow_direction() const { return at<13>().valid(); }
+  int32_t flow_direction() const { return at<13>().as_int32(); }
+  bool has_instant_event_scope() const { return at<14>().valid(); }
+  int32_t instant_event_scope() const { return at<14>().as_int32(); }
+  bool has_pid_override() const { return at<18>().valid(); }
+  int32_t pid_override() const { return at<18>().as_int32(); }
+  bool has_tid_override() const { return at<19>().valid(); }
+  int32_t tid_override() const { return at<19>().as_int32(); }
+};
+
+class TrackEvent_LegacyEvent : public ::protozero::Message {
+ public:
+  using Decoder = TrackEvent_LegacyEvent_Decoder;
+  enum : int32_t {
+    kNameIidFieldNumber = 1,
+    kPhaseFieldNumber = 2,
+    kDurationUsFieldNumber = 3,
+    kThreadDurationUsFieldNumber = 4,
+    kThreadInstructionDeltaFieldNumber = 15,
+    kUnscopedIdFieldNumber = 6,
+    kLocalIdFieldNumber = 10,
+    kGlobalIdFieldNumber = 11,
+    kIdScopeFieldNumber = 7,
+    kUseAsyncTtsFieldNumber = 9,
+    kBindIdFieldNumber = 8,
+    kBindToEnclosingFieldNumber = 12,
+    kFlowDirectionFieldNumber = 13,
+    kInstantEventScopeFieldNumber = 14,
+    kPidOverrideFieldNumber = 18,
+    kTidOverrideFieldNumber = 19,
+  };
+  using FlowDirection = ::perfetto::protos::pbzero::TrackEvent_LegacyEvent_FlowDirection;
+  using InstantEventScope = ::perfetto::protos::pbzero::TrackEvent_LegacyEvent_InstantEventScope;
+  static const FlowDirection FLOW_UNSPECIFIED = TrackEvent_LegacyEvent_FlowDirection_FLOW_UNSPECIFIED;
+  static const FlowDirection FLOW_IN = TrackEvent_LegacyEvent_FlowDirection_FLOW_IN;
+  static const FlowDirection FLOW_OUT = TrackEvent_LegacyEvent_FlowDirection_FLOW_OUT;
+  static const FlowDirection FLOW_INOUT = TrackEvent_LegacyEvent_FlowDirection_FLOW_INOUT;
+  static const InstantEventScope SCOPE_UNSPECIFIED = TrackEvent_LegacyEvent_InstantEventScope_SCOPE_UNSPECIFIED;
+  static const InstantEventScope SCOPE_GLOBAL = TrackEvent_LegacyEvent_InstantEventScope_SCOPE_GLOBAL;
+  static const InstantEventScope SCOPE_PROCESS = TrackEvent_LegacyEvent_InstantEventScope_SCOPE_PROCESS;
+  static const InstantEventScope SCOPE_THREAD = TrackEvent_LegacyEvent_InstantEventScope_SCOPE_THREAD;
+  void set_name_iid(uint64_t value) {
+    AppendVarInt(1, value);
+  }
+  void set_phase(int32_t value) {
+    AppendVarInt(2, value);
+  }
+  void set_duration_us(int64_t value) {
+    AppendVarInt(3, value);
+  }
+  void set_thread_duration_us(int64_t value) {
+    AppendVarInt(4, value);
+  }
+  void set_thread_instruction_delta(int64_t value) {
+    AppendVarInt(15, value);
+  }
+  void set_unscoped_id(uint64_t value) {
+    AppendVarInt(6, value);
+  }
+  void set_local_id(uint64_t value) {
+    AppendVarInt(10, value);
+  }
+  void set_global_id(uint64_t value) {
+    AppendVarInt(11, value);
+  }
+  void set_id_scope(const char* value) {
+    AppendString(7, value);
+  }
+  // Doesn't check for null terminator.
+  // Expects |value| to be at least |size| long.
+  void set_id_scope(const char* value, size_t size) {
+    AppendBytes(7, value, size);
+  }
+  void set_use_async_tts(bool value) {
+    AppendTinyVarInt(9, value);
+  }
+  void set_bind_id(uint64_t value) {
+    AppendVarInt(8, value);
+  }
+  void set_bind_to_enclosing(bool value) {
+    AppendTinyVarInt(12, value);
+  }
+  void set_flow_direction(::perfetto::protos::pbzero::TrackEvent_LegacyEvent_FlowDirection value) {
+    AppendTinyVarInt(13, value);
+  }
+  void set_instant_event_scope(::perfetto::protos::pbzero::TrackEvent_LegacyEvent_InstantEventScope value) {
+    AppendTinyVarInt(14, value);
+  }
+  void set_pid_override(int32_t value) {
+    AppendVarInt(18, value);
+  }
+  void set_tid_override(int32_t value) {
+    AppendVarInt(19, value);
   }
 };
 
