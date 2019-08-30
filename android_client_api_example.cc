@@ -28,6 +28,7 @@
 
 #include <unordered_map>
 #include <vector>
+#include <math.h>
 
 // Deliberately not pulling any non-public perfetto header to spot accidental
 // header public -> non-public dependency while building this file.
@@ -175,6 +176,18 @@ int main() {
         event->set_hw_queue_id(cnt % 2);
         event->set_stage_id(cnt % 3);
         event->set_context(42);
+        if (cnt % 4) {
+            auto* ext0 = event->add_extra_data();
+            ext0->set_name("keyOnlyTest");
+            if (cnt % 2) {
+                auto* ext1 = event->add_extra_data();
+                ext1->set_name("stencilBPP");
+                ext1->set_value("1");
+            }
+            auto* ext2 = event->add_extra_data();
+            ext2->set_name("height");
+            ext2->set_value(std::to_string(pow(cnt, 2)).c_str());
+        }
         packet->Finalize();
       }
     });
