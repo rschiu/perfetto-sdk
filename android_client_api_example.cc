@@ -29,6 +29,7 @@
 #include <unordered_map>
 #include <vector>
 #include <math.h>
+#include <android/log.h>
 
 // Deliberately not pulling any non-public perfetto header to spot accidental
 // header public -> non-public dependency while building this file.
@@ -74,7 +75,8 @@ class GpuRenderStageDataSource : public perfetto::DataSource<GpuRenderStageDataS
 PERFETTO_DEFINE_DATA_SOURCE_STATIC_MEMBERS(GpuCounterDataSource);
 PERFETTO_DEFINE_DATA_SOURCE_STATIC_MEMBERS(GpuRenderStageDataSource);
 
-int main() {
+extern "C" {
+int startProducer() {
   const std::unordered_map<uint32_t, const char*> COUNTER_MAP {
     { 0, "foo" },
     { 1, "bar" }
@@ -145,6 +147,7 @@ int main() {
 
     GpuRenderStageDataSource::Trace([&](GpuRenderStageDataSource::TraceContext ctx) {
       PERFETTO_LOG("GpuRenderStageDataSource tracing lambda called");
+      __android_log_print(ANDROID_LOG_INFO, "TAG", "Adithya - Inside lambda RenderStageDataSource");
       auto data_source = ctx.GetDataSourceLocked();
       if (data_source->first) {
         data_source->count = 0;
@@ -193,4 +196,6 @@ int main() {
     });
     sleep(1);
   }
+  return 0;
+}
 }
