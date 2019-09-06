@@ -39,6 +39,6 @@ make all
 
 # Pushing the .so into an apk:
 
-## 1. Copy the example.so into the gen/assets folder ok the apk
+## 1. Copy the example.so into the gen/assets folder of the apk
 ## 2. Build the apk
 
