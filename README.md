@@ -32,12 +32,13 @@ Unzip it and
 export NDK_HOME=path/to/unzipped/ndk
 ```
 
-## 2. Build the example
+## 2. Build the example.so
 ```
-make -j
+make all
 ```
 
-## 3. Run it on an Android device
-```
-make test
-```
+# Pushing the .so into an apk:
+
+## 1. Copy the example.so into the gen/assets folder ok the apk
+## 2. Build the apk
+
