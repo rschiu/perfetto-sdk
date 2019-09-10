@@ -34,7 +34,7 @@ CFLAGS += -Wa,--noexecstack
 CFLAGS += -fPIC
 CFLAGS += -fno-exceptions
 CFLAGS += -fno-rtti
-#CFLAGS += -fvisibility=hidden
+CFLAGS += -fvisibility=hidden
 CFLAGS += -Wno-everything
 CFLAGS += -I$(LIBPROTOBUF_DIR)/src
 CFLAGS += -I.
@@ -97,7 +97,7 @@ PROTO_SRCS += $(LIBPROTOBUF_DIR)/src/google/protobuf/wire_format_lite.cc
 
 PROTO_OBJS = $(addprefix out/, $(PROTO_SRCS:.cc=.o))
 
-all: out/example
+all: out/example.so
 
 clean:
 	rm -rf out
@@ -116,8 +116,8 @@ out/%.o: %.cc out/mkdir.stamp out/check_ndk.stamp
 	@$(CXX) -o $@ -c $(CFLAGS) $<
 
 # Build .so
-out/example: $(PROTO_OBJS) out/perfetto.o out/android_client_api_example.o
+out/example.so: $(PROTO_OBJS) out/perfetto.o out/android_client_api_example.o
 	@echo LNK $@
-	@$(LNK) $^ $(LDFLAGS) -shared -o out/gpuCounters.so
+	@$(LNK) $^ $(LDFLAGS) -shared -o $@
 
 .PHONY: clean all
