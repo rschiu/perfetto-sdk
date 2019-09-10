@@ -29,7 +29,6 @@
 #include <unordered_map>
 #include <vector>
 #include <math.h>
-#include <android/log.h>
 
 // Deliberately not pulling any non-public perfetto header to spot accidental
 // header public -> non-public dependency while building this file.
@@ -148,7 +147,6 @@ int startProducer() EXPORT {
 
     GpuRenderStageDataSource::Trace([&](GpuRenderStageDataSource::TraceContext ctx) {
       PERFETTO_LOG("GpuRenderStageDataSource tracing lambda called");
-      __android_log_print(ANDROID_LOG_INFO, "TAG", "Adithya - Inside lambda RenderStageDataSource");
       auto data_source = ctx.GetDataSourceLocked();
       if (data_source->first) {
         data_source->count = 0;
