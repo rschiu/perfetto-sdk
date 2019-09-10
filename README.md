@@ -34,7 +34,7 @@ export NDK_HOME=path/to/unzipped/ndk
 
 ## 2. Build the example.so
 ```
-make all
+make -j
 ```
 
 # Pushing the .so into an apk:
