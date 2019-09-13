@@ -42,22 +42,21 @@ CFLAGS += -DPERFETTO_IMPLEMENTATION
 CFLAGS += -DGOOGLE_PROTOBUF_NO_RTTI
 CFLAGS += -DGOOGLE_PROTOBUF_NO_STATIC_INITIALIZER
 CFLAGS += -DHAVE_PTHREAD=1
-CFLAGS += -latomic
 
-ANDROID_CFLAGS += --target=arm-linux-androideabi
+ANDROID_CFLAGS += --target=aarch64-linux-android
 ANDROID_CFLAGS += --sysroot=$(NDK_HOME)/sysroot/usr/include
 ANDROID_CFLAGS += -I$(NDK_HOME)/sources/android/support/include
 ANDROID_CFLAGS += -I$(NDK_HOME)/sources/cxx-stl/llvm-libc++/include
 ANDROID_CFLAGS += -I$(NDK_HOME)/sources/cxx-stl/llvm-libc++abi/include
 ANDROID_CFLAGS += -isystem$(NDK_HOME)/sysroot/usr/include
-ANDROID_CFLAGS += -isystem$(NDK_HOME)/sysroot/usr/include/arm-linux-androideabi
+ANDROID_CFLAGS += -isystem$(NDK_HOME)/sysroot/usr/include/aarch64-linux-android
 ANDROID_CFLAGS += -DANDROID
 ANDROID_CFLAGS += -D__ANDROID_API__=21
 CFLAGS += $(ANDROID_CFLAGS)
 
-ANDROID_LDFLAGS += -gcc-toolchain $(NDK_HOME)/toolchains/arm-linux-androideabi-4.9/prebuilt/$(NDK_HOST)
-ANDROID_LDFLAGS += --sysroot=$(NDK_HOME)/platforms/android-21/arch-arm
-ANDROID_LDFLAGS += --target=arm-linux-androideabi
+ANDROID_LDFLAGS += -gcc-toolchain $(NDK_HOME)/toolchains/aarch64-linux-android-4.9/prebuilt/$(NDK_HOST)
+ANDROID_LDFLAGS += --sysroot=$(NDK_HOME)/platforms/android-21/arch-arm64
+ANDROID_LDFLAGS += --target=aarch64-linux-android
 ANDROID_LDFLAGS += -Wl,--exclude-libs,libunwind.a
 ANDROID_LDFLAGS += -Wl,--exclude-libs,libgcc.a
 ANDROID_LDFLAGS += -Wl,--exclude-libs,libc++_static.a
@@ -67,8 +66,8 @@ ANDROID_LDFLAGS += -Wl,-z,noexecstack
 ANDROID_LDFLAGS += -Wl,-z,now
 ANDROID_LDFLAGS += -Wl,--fatal-warnings
 ANDROID_LDFLAGS += -pie
-ANDROID_LDFLAGS += -L$(NDK_HOME)/sources/cxx-stl/llvm-libc++/libs/armeabi-v7a
-ANDROID_LDFLAGS += -lgcc -lc++_static -latomic -lc++abi -llog
+ANDROID_LDFLAGS += -L$(NDK_HOME)/sources/cxx-stl/llvm-libc++/libs/arm64-v8a
+ANDROID_LDFLAGS += -lgcc -lc++_static -lc++abi -llog
 LDFLAGS += $(ANDROID_LDFLAGS)
 
 
@@ -119,6 +118,6 @@ out/%.o: %.cc out/mkdir.stamp out/check_ndk.stamp
 # Build .so
 out/example.so: $(PROTO_OBJS) out/perfetto.o out/android_client_api_example.o
 	@echo LNK $@
-	@$(LNK) -shared $^ -o $@ $(LDFLAGS)
+	@$(LNK) $^ $(LDFLAGS) -shared -o $@
 
 .PHONY: clean all
