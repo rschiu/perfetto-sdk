@@ -74,7 +74,9 @@ class GpuRenderStageDataSource : public perfetto::DataSource<GpuRenderStageDataS
 PERFETTO_DEFINE_DATA_SOURCE_STATIC_MEMBERS(GpuCounterDataSource);
 PERFETTO_DEFINE_DATA_SOURCE_STATIC_MEMBERS(GpuRenderStageDataSource);
 
-int main() {
+#define EXPORT __attribute__ ((visibility ("default")))
+extern "C" {
+int startProducer() EXPORT {
   const std::unordered_map<uint32_t, const char*> COUNTER_MAP {
     { 0, "foo" },
     { 1, "bar" }
@@ -193,4 +195,6 @@ int main() {
     });
     sleep(1);
   }
+  return 0;
+}
 }

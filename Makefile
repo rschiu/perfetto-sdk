@@ -25,7 +25,7 @@ endif
 CXX := $(NDK_HOME)/toolchains/llvm/prebuilt/$(NDK_HOST)/bin/clang++
 LNK := $(CXX)
 
-TEST_CFG = duration_ms: 10000; buffers { size_kb: 1024 }; data_sources { config { name: "com.example.mytrace" gpu_counter_config { counter_ids: 0 counter_ids: 1 } } }
+TEST_CFG = duration_ms: 10000; buffers { size_kb: 1024 }; data_sources { config { name: "gpu.counters" gpu_counter_config { counter_ids: 0 counter_ids: 1 } } }
 
 CFLAGS += -std=c++11
 CFLAGS += -fno-omit-frame-pointer
@@ -97,7 +97,7 @@ PROTO_SRCS += $(LIBPROTOBUF_DIR)/src/google/protobuf/wire_format_lite.cc
 
 PROTO_OBJS = $(addprefix out/, $(PROTO_SRCS:.cc=.o))
 
-all: out/example
+all: out/example.so
 
 clean:
 	rm -rf out
@@ -115,16 +115,9 @@ out/%.o: %.cc out/mkdir.stamp out/check_ndk.stamp
 	@echo CXX $@
 	@$(CXX) -o $@ -c $(CFLAGS) $<
 
-# Link executable
-out/example: $(PROTO_OBJS) out/perfetto.o out/android_client_api_example.o
+# Build .so
+out/example.so: $(PROTO_OBJS) out/perfetto.o out/android_client_api_example.o
 	@echo LNK $@
-	@$(LNK) $^ $(LDFLAGS) -o $@
-
-test: out/example
-	adb root
-	adb push $< /data/local/tmp
-	echo '$(TEST_CFG)' | adb shell perfetto --txt -c - -o /data/misc/perfetto-traces/trace --background
-	adb shell /data/local/tmp/example
-
+	@$(LNK) $^ $(LDFLAGS) -shared -o $@
 
 .PHONY: clean all
